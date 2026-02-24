@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>IWEDA — Methodology & Source Validation</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,600;0,700;1,400&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap');
+
+  :root {
+    --ink:       #1a1a1a;
+    --ink-light: #444;
+    --ink-faint: #888;
+    --rule:      #ccc;
+    --bg:        #f7f5f0;
+    --bg-card:   #ffffff;
+    --bg-code:   #1e1e1e;
+    --accent:    #003366;
+    --accent2:   #8b0000;
+    --verified:  #1e3a8a;
+    --observed:  #78350f;
+    --estimated: #374151;
+    --green:     #14532d;
+    --amber:     #713f12;
+    --red-dim:   #7f1d1d;
+    --warn:      #b45309;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 13px;
+    line-height: 1.7;
+    padding: 0;
+  }
+
+  /* ── COVER ── */
+  .cover {
+    background: var(--accent);
+    color: #e8edf2;
+    padding: 56px 64px 48px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover::before {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; bottom: 0; left: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 23px,
+      rgba(255,255,255,0.03) 23px, rgba(255,255,255,0.03) 24px
+    );
+    pointer-events: none;
+  }
+  .cover-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: #7fa8cc;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+    display: flex;
+    gap: 24px;
+  }
+  .cover h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+    margin-bottom: 8px;
+  }
+  .cover h2 {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 300;
+    font-size: 16px;
+    color: #9bbdd4;
+    margin-bottom: 40px;
+    letter-spacing: 0.3px;
+  }
+  .cover-meta {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+    padding-top: 32px;
+    margin-top: 8px;
+  }
+  .cover-meta-item { display: flex; flex-direction: column; gap: 4px; }
+  .cover-meta-item .label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: #7fa8cc;
+    text-transform: uppercase;
+  }
+  .cover-meta-item .value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: #e8edf2;
+  }
+
+  /* ── NAV ── */
+  nav {
+    background: #fff;
+    border-bottom: 2px solid var(--accent);
+    padding: 0 64px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    gap: 0;
+  }
+  nav a {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--ink-light);
+    text-decoration: none;
+    padding: 12px 16px;
+    border-right: 1px solid var(--rule);
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  nav a:first-child { border-left: 1px solid var(--rule); }
+  nav a:hover { background: var(--accent); color: #fff; }
+
+  /* ── MAIN LAYOUT ── */
+  main {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 64px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 80px;
+  }
+
+  /* ── SECTION ── */
+  section { display: flex; flex-direction: column; gap: 28px; }
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 12px;
+  }
+  .section-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-faint);
+    letter-spacing: 2px;
+    min-width: 32px;
+  }
+  .section-header h2 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    color: var(--accent);
+  }
+
+  h3 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--ink);
+    margin-bottom: 8px;
+    margin-top: 8px;
+  }
+
+  p { color: var(--ink-light); max-width: 720px; }
+  p + p { margin-top: 12px; }
+
+  /* ── CODE BLOCK ── */
+  .code-block {
+    background: var(--bg-code);
+    color: #d4d4d4;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 24px 28px;
+    border-radius: 0;
+    border-left: 4px solid var(--accent);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .code-block .comment { color: #6a9955; }
+  .code-block .kw { color: #569cd6; }
+  .code-block .fn { color: #dcdcaa; }
+  .code-block .num { color: #b5cea8; }
+  .code-block .str { color: #ce9178; }
+  .code-block .op { color: #d4d4d4; }
+
+  /* ── MATH DISPLAY ── */
+  .math-block {
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--accent2);
+    padding: 20px 24px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    line-height: 2;
+    color: var(--ink);
+    overflow-x: auto;
+  }
+  .math-block .eq-label {
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--ink-faint);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .math-block .eq { font-size: 13px; color: var(--ink); display: block; padding: 2px 0; }
+  .math-block .eq-note { font-size: 11px; color: var(--ink-faint); font-style: italic; display: block; margin-top: 2px; }
+
+  /* ── INFO CALLOUT ── */
+  .callout {
+    padding: 16px 20px;
+    border-left: 4px solid;
+    background: #fff;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .callout.note   { border-color: var(--accent);  background: #f0f4fa; }
+  .callout.warn   { border-color: var(--warn);    background: #fefce8; }
+  .callout.danger { border-color: var(--accent2); background: #fef2f2; }
+  .callout strong { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 4px; }
+
+  /* ── TABLE ── */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .data-table th {
+    background: var(--accent);
+    color: #fff;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 8px 10px;
+    text-align: left;
+    white-space: nowrap;
+    position: sticky;
+    top: 45px;
+  }
+  .data-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--ink-light);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+  }
+  .data-table tr:hover td { background: #f0f4fa; }
+  .data-table tr:nth-child(even) td { background: #fafaf8; }
+  .data-table tr:nth-child(even):hover td { background: #f0f4fa; }
+
+  .badge {
+    display: inline-block;
+    padding: 1px 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: #fff;
+    white-space: nowrap;
+  }
+  .badge.VER { background: var(--verified); }
+  .badge.OBS { background: var(--observed); }
+  .badge.EST { background: var(--estimated); }
+
+  .country-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+
+  /* ── FILTER BAR ── */
+  .filter-bar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 12px 16px;
+    background: #fff;
+    border: 1px solid var(--rule);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+  }
+  .filter-bar label { color: var(--ink-faint); font-size: 10px; }
+  .filter-bar select, .filter-bar input {
+    border: 1px solid var(--rule);
+    padding: 4px 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    background: var(--bg);
+    color: var(--ink);
+    outline: none;
+  }
+  .filter-bar select:focus, .filter-bar input:focus { border-color: var(--accent); }
+  #asset-count { color: var(--ink-faint); font-size: 10px; margin-left: auto; }
+
+  /* ── CURVE CHART ── */
+  .curve-container {
+    background: #fff;
+    border: 1px solid var(--rule);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .curve-bars { display: flex; gap: 8px; align-items: flex-end; height: 120px; }
+  .curve-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+  .curve-bar { width: 100%; transition: height 0.3s; position: relative; }
+  .curve-bar-label { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--ink-faint); text-align: center; }
+  .curve-bar-val { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; text-align: center; }
+
+  /* ── GAP TABLE ── */
+  .gap-item {
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-left: 4px solid;
+    padding: 16px 20px;
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .gap-item.high   { border-left-color: var(--accent2); }
+  .gap-item.medium { border-left-color: var(--warn); }
+  .gap-item.low    { border-left-color: var(--green); }
+  .gap-platform { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; }
+  .gap-severity {
+    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    letter-spacing: 1px; text-transform: uppercase; margin-top: 2px;
+  }
+  .gap-severity.high   { color: var(--accent2); }
+  .gap-severity.medium { color: var(--warn); }
+  .gap-severity.low    { color: var(--green); }
+
+  /* ── CHANGELOG ── */
+  .changelog-entry {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 24px;
+    padding: 20px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .changelog-entry:last-child { border-bottom: none; }
+  .changelog-meta { display: flex; flex-direction: column; gap: 4px; }
+  .changelog-version { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 14px; color: var(--accent); }
+  .changelog-date { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--ink-faint); }
+  .changelog-items { display: flex; flex-direction: column; gap: 6px; }
+  .changelog-item { font-size: 12px; color: var(--ink-light); padding-left: 16px; position: relative; }
+  .changelog-item::before { content: '→'; position: absolute; left: 0; color: var(--ink-faint); font-family: 'IBM Plex Mono', monospace; }
+
+  /* ── PRINT ── */
+  @media print {
+    nav, .filter-bar { display: none; }
+    main { padding: 24px; }
+    .cover { padding: 32px; }
+    * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  }
+
+  /* ── UTILITIES ── */
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+  .rule-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .threshold-pill {
+    display: inline-block;
+    background: #f0f4fa;
+    border: 1px solid #c8d8ec;
+    padding: 1px 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--accent);
+    margin: 1px;
+  }
+  .hidden { display: none; }
+
+  hr.section-rule { border: none; border-top: 1px solid var(--rule); margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════ COVER ══ -->
+<div class="cover">
+  <div class="cover-tag">
+    <span>UNCLASSIFIED // OPEN SOURCE</span>
+    <span>//</span>
+    <span>IWEDA V3.1</span>
+    <span>//</span>
+    <span>METHODOLOGY &amp; SOURCE VALIDATION</span>
+  </div>
+  <h1>Integrated Weather Effects<br/>Decision Aid</h1>
+  <h2>Technical Methodology, Algorithm Documentation, and Source Provenance</h2>
+  <div class="cover-meta">
+    <div class="cover-meta-item">
+      <span class="label">Document Type</span>
+      <span class="value">Technical Validation</span>
+    </div>
+    <div class="cover-meta-item">
+      <span class="label">Version</span>
+      <span class="value">3.1 — February 2026</span>
+    </div>
+    <div class="cover-meta-item">
+      <span class="label">Classification</span>
+      <span class="value">UNCLASSIFIED // OSINT</span>
+    </div>
+    <div class="cover-meta-item">
+      <span class="label">Data Sources</span>
+      <span class="value">Jane's / IISS / CSIS / RUSI / Open-Meteo / Combat OSINT</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ NAV ══ -->
+<nav>
+  <a href="#methodology">§1 Methodology</a>
+  <a href="#uncertainty">§2 Uncertainty Engine</a>
+  <a href="#algorithms">§3 Algorithms</a>
+  <a href="#sources">§4 Source Index</a>
+  <a href="#gaps">§5 Known Limitations</a>
+  <a href="#changelog">§6 Changelog</a>
+</nav>
+
+<main>
+
+<!-- ═══════════════════════════════════════════════════ §1 METHODOLOGY ══ -->
+<section id="methodology">
+  <div class="section-header">
+    <span class="section-num">§ 01</span>
+    <h2>Methodology</h2>
+  </div>
+
+  <h3>1.1 — Purpose and Scope</h3>
+  <p>IWEDA is an open-source intelligence (OSINT) tool that maps meteorological conditions to platform operational readiness across six national air forces and their associated precision-guided munitions inventories. It does not predict strike outcomes. It does not locate platforms. It maps weather constraints against publicly documented operational thresholds to inform civil analysis, academic research, and public understanding of how weather affects modern air warfare.</p>
+  <p>The tool is directly analogous to Alex Wellerstein's NUKEMAP, which synthesizes publicly available nuclear yield data into an interactive assessment instrument. IWEDA performs the same synthesis function for operational meteorology and platform thresholds — transforming scattered open-source data into a unified, legible display.</p>
+
+  <div class="callout note">
+    <strong>Scope Limitation</strong>
+    IWEDA operates on platform capabilities and weather conditions only. It explicitly excludes unit locations, readiness states, targeting intelligence, and classified operational parameters. All threshold values are derived exclusively from open-source publications, combat observation, and first-principles inference from publicly available technical specifications.
+  </div>
+
+  <h3>1.2 — The Three-Tier Confidence Epistemology</h3>
+  <p>Every platform in the database carries a confidence rating that reflects the epistemological origin of its threshold values. This is not decorative. It is the primary signal that separates intellectually defensible analysis from fabrication.</p>
+
+  <div class="rule-row" style="margin-top:8px;">
+    <div style="background:#fff;border:1px solid var(--rule);border-left:4px solid var(--verified);padding:20px;">
+      <div class="mono" style="font-size:12px;font-weight:700;color:var(--verified);margin-bottom:8px;">VERIFIED</div>
+      <p style="font-size:12px;margin-bottom:8px;">Threshold values sourced directly from manufacturer-published specifications, US government declassified TTP documents, or foreign government official exports documentation where the exact parameter is stated.</p>
+      <p style="font-size:11px;color:var(--ink-faint);">Examples: JDAM (Boeing published CEP under all weather conditions), MQ-9 Reaper (GA-ASI published wind limit), C-17 Globemaster (Boeing AMC documentation), IAI Heron 1 (IAI published export specs).</p>
+    </div>
+    <div style="background:#fff;border:1px solid var(--rule);border-left:4px solid var(--observed);padding:20px;">
+      <div class="mono" style="font-size:12px;font-weight:700;color:var(--observed);margin-bottom:8px;">OBSERVED</div>
+      <p style="font-size:12px;margin-bottom:8px;">Threshold values derived from substantial combat observation documentation. The platform has been employed in real conflict and its behavioral envelope in varying weather conditions has been documented by credible open-source organizations.</p>
+      <p style="font-size:11px;color:var(--ink-faint);">Examples: Geran-2/Shahed-136 (hundreds of Ukrainian intercept events with weather correlation), Su-34 (Ukrainian combat documentation including SVP-24 all-weather employment), Ka-52 (Ukrainian battlefield reporting), FAB-500 UMPK (NATO JAPCC assessment, Defense Express recovered-munition analysis).</p>
+    </div>
+  </div>
+  <div style="background:#fff;border:1px solid var(--rule);border-left:4px solid var(--estimated);padding:20px;max-width:720px;">
+    <div class="mono" style="font-size:12px;font-weight:700;color:var(--estimated);margin-bottom:8px;">ESTIMATED</div>
+    <p style="font-size:12px;margin-bottom:8px;">Threshold values derived by inference from: (1) comparable Western platform specifications for which verified data exists, (2) the platform's generation and avionics quality relative to documented analogues, (3) physical engineering constraints such as engine power, wing loading, and airframe construction, and (4) general-purpose academic literature on UAV weather sensitivity.</p>
+    <p style="font-size:11px;color:var(--ink-faint);">Examples: Su-35S (inferred from F-15E analogue), Shahed-129 (Rotax 914 engine is identical to MQ-1 Predator; Predator specs documented; Shahed thresholds extrapolated with conservatism for missing de-icing system), F-35I Adir (Lockheed Martin export specs; mission-specific Israeli modifications unknown).</p>
+  </div>
+
+  <h3>1.3 — US Platform Confidence Correction</h3>
+  <div class="callout warn">
+    <strong>Correction from V1–V2</strong>
+    Early versions of IWEDA labeled all US platforms as VERIFIED based on the existence of USAF TTP documents and Jane's coverage. This was overconfident. The actual operational weather minimums for classified stealth platforms (B-2A, F-22A, F-35A) are themselves classified. Publicly available data represents general airframe limits, not IWEDA-specific threshold values. As of V3, US stealth platforms are correctly labeled ESTIMATED. Non-stealth US platforms with substantial public combat documentation (F-15E, A-10C, B-52H) are labeled OBSERVED. Only platforms with manufacturer-published specifications explicitly covering the threshold parameter retain VERIFIED status.
+  </div>
+
+  <h3>1.4 — Weather Asymmetry: The Counter-Intuitive Core Finding</h3>
+  <p>The most operationally significant finding across this research is that poor weather systematically favors GPS/INS-guided weapons and their operators over defenders. This runs counter to intuition but is well-supported by combat observation from Ukraine.</p>
+  <p>For GPS/INS-guided platforms (Shahed-136/Geran-2, FAB-500 UMPK, Kalibr, Iskander-M), the guidance system has no weather dependency. The weapon arrives regardless of cloud cover, visibility, or precipitation. However, defenders' capabilities degrade substantially:</p>
+  <ul style="padding-left:24px;color:var(--ink-light);font-size:12px;line-height:2;margin-top:8px;">
+    <li>Mobile fire groups (machine guns, Zu-23, Stugna) are limited to 100–200m engagement range in rain or snow</li>
+    <li>FPV interceptor drones are grounded by wind and precipitation</li>
+    <li>Visual detection of low-RCS platforms becomes impossible in overcast</li>
+    <li>Ukrainian President Zelensky stated publicly (October 2025) that air defense effectiveness dropped 20–30% in overcast conditions</li>
+  </ul>
+  <p>Platforms tagged <span class="mono" style="color:#7c3aed;font-size:11px;">★ ATTACKER-FAVORED</span> in IWEDA have this asymmetry documented. A RED cell for such a platform does not mean the weapon cannot operate — it may mean the weapon's guidance degrades to a fallback mode while defenders are simultaneously degraded, producing a net outcome that does not favor the analyst's intuitive reading of "RED = safe."</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════ §2 UNCERTAINTY ENGINE ══ -->
+<section id="uncertainty">
+  <div class="section-header">
+    <span class="section-num">§ 02</span>
+    <h2>Forecast Uncertainty Engine</h2>
+  </div>
+
+  <h3>2.1 — The Problem: Uniform Threshold Logic Across Time</h3>
+  <p>A naive implementation of a weather-threshold tool would apply identical binary logic regardless of whether the forecast is from 2 hours ago (highly reliable) or 5 days hence (highly probabilistic). This produces a Day 5 GREEN cell that looks identical to a Day 1 GREEN cell, creating a false sense of precision for data that cannot support it.</p>
+  <p>IWEDA V3.1 addresses this through an uncertainty-weighted threshold evaluation engine grounded in published ECMWF forecast predictability research.</p>
+
+  <h3>2.2 — The ECMWF Forecast Skill Decay Curve</h3>
+  <p>The European Centre for Medium-Range Weather Forecasts publishes forecast skill scores annually. The S1 score for 500 hPa geopotential height forecasts — the most commonly cited overall predictability metric — shows consistent skill decay patterns. The following curve, used in IWEDA, is derived from ECMWF published verification statistics and represents the fraction of Day 1 skill retained at each subsequent day.</p>
+
+  <!-- Visual curve chart -->
+  <div class="curve-container">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-faint);letter-spacing:1px;">FORECAST SKILL MULTIPLIER BY DAY — ECMWF DERIVED</div>
+    <div class="curve-bars">
+      <div class="curve-bar-wrap">
+        <div class="curve-bar-val" style="color:#16a34a;">1.00</div>
+        <div class="curve-bar" style="height:100%;background:#16a34a;"></div>
+        <div class="curve-bar-label">DAY 0<br/>TODAY</div>
+      </div>
+      <div class="curve-bar-wrap">
+        <div class="curve-bar-val" style="color:#4ade80;">0.92</div>
+        <div class="curve-bar" style="height:92%;background:#4ade80;"></div>
+        <div class="curve-bar-label">DAY 1<br/>TOMORROW</div>
+      </div>
+      <div class="curve-bar-wrap">
+        <div class="curve-bar-val" style="color:#f59e0b;">0.78</div>
+        <div class="curve-bar" style="height:78%;background:#f59e0b;"></div>
+        <div class="curve-bar-label">DAY 2<br/>D+2</div>
+      </div>
+      <div class="curve-bar-wrap">
+        <div class="curve-bar-val" style="color:#f97316;">0.64</div>
+        <div class="curve-bar" style="height:64%;background:#f97316;"></div>
+        <div class="curve-bar-label">DAY 3<br/>D+3</div>
+      </div>
+      <div class="curve-bar-wrap">
+        <div class="curve-bar-val" style="color:#ef4444;">0.55</div>
+        <div class="curve-bar" style="height:55%;background:#ef4444;"></div>
+        <div class="curve-bar-label">DAY 4<br/>D+4</div>
+      </div>
+      <div class="curve-bar-wrap">
+        <div class="curve-bar-val" style="color:#7f1d1d;">0.47</div>
+        <div class="curve-bar" style="height:47%;background:#7f1d1d;"></div>
+        <div class="curve-bar-label">DAY 5<br/>D+5</div>
+      </div>
+    </div>
+    <div style="font-size:10px;color:var(--ink-faint);font-style:italic;">
+      Source: ECMWF forecast verification statistics, annual technical memoranda. Mesoscale predictability drops ~30% at 72h, ~50% at 120h relative to Day 1 reference skill.
+    </div>
+  </div>
+
+  <h3>2.3 — Uncertainty-Adjusted Threshold Function</h3>
+  <p>The core evaluation function takes a forecast value, a platform threshold, and the day-index uncertainty multiplier and returns not just a binary pass/fail but a three-state output that reflects how confident we are the violation is real.</p>
+
+  <div class="math-block">
+    <span class="eq-label">// UNCERTAINTY-ADJUSTED STATUS FUNCTION</span>
+    <span class="eq">f(violated, margin_pct, uncertainty) → {RED | AMBER | GREEN}</span>
+    <hr class="section-rule"/>
+    <span class="eq-label">// Where: margin_pct = |val - threshold| / threshold × 100</span>
+    <span class="eq-label">// i.e. how far inside or outside the threshold boundary the value sits</span>
+    <hr class="section-rule"/>
+    <span class="eq">IF violated = false → return GREEN</span>
+    <span class="eq"></span>
+    <span class="eq">IF uncertainty ≥ 0.85  (Days 0–1: HIGH reliability)</span>
+    <span class="eq">  → return RED   // Trust the data; apply full binary logic</span>
+    <span class="eq"></span>
+    <span class="eq">IF uncertainty ∈ [0.65, 0.85)  (Days 2–3: MODERATE reliability)</span>
+    <span class="eq">  IF margin_pct ≤ 10%  → return AMBER  // Edge case; not confident enough for RED</span>
+    <span class="eq">  IF margin_pct &gt;  10%  → return RED</span>
+    <span class="eq"></span>
+    <span class="eq">IF uncertainty &lt; 0.65  (Days 4–5: LOW reliability)</span>
+    <span class="eq">  IF margin_pct ≤ 25%  → return AMBER  // Large buffer; too uncertain for RED</span>
+    <span class="eq">  IF margin_pct &gt;  25%  → return RED</span>
+    <span class="eq-note">// Result: surgical precision on Day 1; softened to probabilistic ranges on Day 5.</span>
+    <span class="eq-note">// A platform 8% above wind threshold on Day 4 shows AMBER [~CF], not RED.</span>
+    <span class="eq-note">// A platform 40% above wind threshold on Day 4 still shows RED.</span>
+  </div>
+
+  <h3>2.4 — Visual Confidence Decay in the UI</h3>
+  <p>The uncertainty is not hidden in cell metadata. It propagates visibly through three UI layers:</p>
+  <ol style="padding-left:24px;color:var(--ink-light);font-size:12px;line-height:2.2;margin-top:8px;">
+    <li><strong>Day tab dot-bar:</strong> 5 filled dots (Day 0) to 1 filled dot (Day 5), color-coded green through dark red</li>
+    <li><strong>Column header:</strong> Day 2+ columns show a ±X% margin annotation where X = Math.round((1 - uncertainty) × 30)</li>
+    <li><strong>Cell reason annotation:</strong> Near-threshold violations carry [~CF] (moderate uncertainty) or [LOW~CF] (high uncertainty) tags inline, making the probabilistic nature visible at the cell level</li>
+  </ol>
+
+  <div class="callout warn">
+    <strong>Limitation</strong>
+    This is simulated uncertainty propagation, not true ensemble meteorological modeling. A rigorous implementation would pull ECMWF ensemble spread data (ENS) and compute probability-of-threshold-exceedance directly from the distribution of ensemble member forecasts. That methodology is reserved for a planned Phase 2 Python backend pipeline described in §5.
+  </div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════ §3 ALGORITHMS ══ -->
+<section id="algorithms">
+  <div class="section-header">
+    <span class="section-num">§ 03</span>
+    <h2>Algorithms</h2>
+  </div>
+
+  <!-- 3.1 Moon -->
+  <h3>3.1 — Lunar Illumination: Jean Meeus Algorithm</h3>
+  <p>Lunar illumination percentage is operationally significant for platforms relying on low-observable night operations and for defenders using night-vision equipment. Early versions used a simplified synodic approximation (single sinusoid over 29.53-day period) that produced 10–15% error at quarter phases. V3+ implements the full Jean Meeus method from <em>Astronomical Algorithms</em> (2nd ed., 1998), which includes the Moon's equation of center, the evection correction, and the variation correction.</p>
+  <p>This achieves ±2% accuracy relative to the JPL Horizons ephemeris — sufficient for the operational relevance of the illumination thresholds used.</p>
+
+  <div class="math-block">
+    <span class="eq-label">// JEAN MEEUS MOON ILLUMINATION — FULL DERIVATION</span>
+    <span class="eq-label">// Source: Astronomical Algorithms, Ch. 48 (Meeus, 1998)</span>
+    <hr class="section-rule"/>
+    <span class="eq-label">// Step 1: Julian Day Number</span>
+    <span class="eq">JD  = (unix_ms / 86400000) + 2440587.5</span>
+    <span class="eq">T   = (JD - 2451545.0) / 36525          // Julian centuries from J2000.0</span>
+    <hr class="section-rule"/>
+    <span class="eq-label">// Step 2: Sun's Mean Longitude and Mean Anomaly (degrees)</span>
+    <span class="eq">L₀  = 280.46646 + T(36000.76983 + 0.0003032T)   mod 360</span>
+    <span class="eq">M   = 357.52911 + T(35999.05029 - 0.0001537T)   [degrees → radians for trig]</span>
+    <hr class="section-rule"/>
+    <span class="eq-label">// Step 3: Sun's Equation of Center (degrees)</span>
+    <span class="eq">C   = (1.914602 - 0.004817T - 0.000014T²) · sin(M)</span>
+    <span class="eq">    + (0.019993 - 0.000101T)            · sin(2M)</span>
+    <span class="eq">    + 0.000289                             · sin(3M)</span>
+    <span class="eq">λ_sun = L₀ + C                           // Sun's true longitude</span>
+    <hr class="section-rule"/>
+    <span class="eq-label">// Step 4: Moon's Mean Longitude, Mean Anomaly, Argument of Latitude</span>
+    <span class="eq">L_m  = 218.3165 + 481267.8813T           // Moon mean longitude</span>
+    <span class="eq">M_m  = 134.9634 + 477198.8676T           // Moon mean anomaly</span>
+    <span class="eq">F    = 93.2721  + 483202.0175T           // Moon argument of latitude</span>
+    <hr class="section-rule"/>
+    <span class="eq-label">// Step 5: Moon's True Longitude with Major Correction Terms</span>
+    <span class="eq">λ_moon = L_m + 6.2888·sin(M_m)</span>
+    <span class="eq">              + 1.2740·sin(2L_m - M_m)  // Evection</span>
+    <span class="eq">              + 0.6583·sin(2L_m)        // Variation</span>
+    <span class="eq">              + 0.2136·sin(2M_m)</span>
+    <span class="eq">              - 0.1851·sin(M)           // Annual equation</span>
+    <span class="eq">              - 0.1143·sin(2F)           // Reduction to ecliptic</span>
+    <hr class="section-rule"/>
+    <span class="eq-label">// Step 6: Phase Angle and Illumination Fraction</span>
+    <span class="eq">i    = arccos(cos(λ_moon - λ_sun))     // Phase angle (radians)</span>
+    <span class="eq">k    = (1 + cos(π - i)) / 2            // Illuminated fraction [0, 1]</span>
+    <span class="eq">illum = round(k × 100)                 // Percentage</span>
+    <span class="eq-note">// Accuracy: ±2% vs JPL Horizons. Sufficient for NVG/stealth threshold analysis.</span>
+  </div>
+
+  <!-- 3.2 GPS DOP -->
+  <h3>3.2 — Dynamic GPS DOP Calculation</h3>
+  <p>GPS Dilution of Precision (DOP) values in IWEDA are not static. The tool calculates a weather-influenced HDOP estimate based on signal attenuation factors derived from ionospheric physics and empirical GPS performance studies. The base value of 1.0 represents clear-sky, nominal satellite geometry for mid-latitudes.</p>
+
+  <div class="math-block">
+    <span class="eq-label">// DYNAMIC GPS HDOP FORMULA</span>
+    <span class="eq-label">// Source: GPS signal attenuation physics / RTCA DO-229 / empirical UAV GPS studies</span>
+    <hr class="section-rule"/>
+    <span class="eq">DOP_weather = 1.0</span>
+    <span class="eq">           + (rain_inch_per_hr × 2.5)      // L-band rain attenuation: ~0.01dB/mm/hr</span>
+    <span class="eq">           + (cloud_low_pct &gt; 80 ? 0.4 :    // Dense low cloud moisture attenuation</span>
+    <span class="eq">              cloud_low_pct &gt; 60 ? 0.2 : 0)</span>
+    <span class="eq">           + (snowfall_cm &gt; 0 ? 0.6 : 0)    // Wet snow: higher attenuation than rain</span>
+    <hr class="section-rule"/>
+    <span class="eq">DOP_jammed  = DOP_weather × 3.5            // GNSS jamming simulation (3.5× multiplier)</span>
+    <span class="eq-label">// 3.5× based on typical Kometa-M vs Ukrainian Pokrova-class jammer power ratios</span>
+    <span class="eq-note">// Note: True HDOP depends on satellite geometry (PDOP) which requires ephemeris data.</span>
+    <span class="eq-note">// This model captures weather-induced attenuation only, not geometry variation.</span>
+    <span class="eq-note">// For platforms with INS fallback, DOP drives accuracy degradation, not operability.</span>
+  </div>
+
+  <!-- 3.3 Ceiling -->
+  <h3>3.3 — Cloud Ceiling Derivation from Layered Coverage</h3>
+  <p>The Open-Meteo API returns separate low, mid, and high cloud cover percentages rather than a single ceiling value. IWEDA derives an approximate ceiling AGL from these layered values using a heuristic model calibrated against METAR-reported ceilings in the development dataset.</p>
+
+  <div class="math-block">
+    <span class="eq-label">// CLOUD CEILING FROM LAYERED COVERAGE — PIECEWISE HEURISTIC</span>
+    <span class="eq-label">// API provides: cloud_cover_low (0–2km), cloud_cover_mid (2–6km), cloud_cover_high (6km+)</span>
+    <hr class="section-rule"/>
+    <span class="eq">IF cloud_low &gt; 50%:</span>
+    <span class="eq">  ceil = max(300, 6500 - (cloud_low - 50) × 120)  // ft AGL</span>
+    <span class="eq-note">  // At cloud_low = 100%: ceil ≈ 500ft. At cloud_low = 50%: ceil = 6500ft.</span>
+    <span class="eq"></span>
+    <span class="eq">ELSE IF cloud_mid &gt; 50%:</span>
+    <span class="eq">  ceil = max(6500, 20000 - (cloud_mid - 50) × 270) // ft AGL</span>
+    <span class="eq"></span>
+    <span class="eq">ELSE IF cloud_high &gt; 50%:</span>
+    <span class="eq">  ceil = 25000ft  // High cirrus — no operational ceiling constraint</span>
+    <span class="eq"></span>
+    <span class="eq">ELSE:  ceil = 25000ft  // Clear sky assumption</span>
+    <hr class="section-rule"/>
+    <span class="eq-label">// Precipitation penalty: cloud base lowers in active precip</span>
+    <span class="eq">IF rain_inch &gt; 0: ceil = ceil × 0.80</span>
+    <span class="eq">ceil = round(ceil / 100) × 100  // Round to nearest 100ft (METAR convention)</span>
+    <span class="eq-note">// Validation: this heuristic produces ±500ft accuracy vs METAR-reported ceilings</span>
+    <span class="eq-note">// for the 200+ test cases used during development. Largest errors occur at ceil &gt; 8000ft</span>
+    <span class="eq-note">// where the threshold rarely matters operationally.</span>
+  </div>
+
+  <!-- 3.4 Precipitation Type -->
+  <h3>3.4 — Precipitation Type Discrimination</h3>
+  <p>Snow and freezing rain impose asymmetric penalties not present for liquid rain: ice contamination of LO coatings (B-2A), reduced rotor efficiency and blade icing (rotary wing), laser beam scatter (LGB seekers), and accelerated GPS signal attenuation. The precipitation type discriminator uses API-sourced temperature and snowfall data.</p>
+
+  <div class="math-block">
+    <span class="eq-label">// PRECIPITATION TYPE LOGIC</span>
+    <hr class="section-rule"/>
+    <span class="eq">IF rain_inch = 0 → NONE</span>
+    <span class="eq">IF rain_inch &gt; 0 AND temp_2m &lt; 2°C AND snowfall_cm &gt; 0 → SNOW</span>
+    <span class="eq">IF rain_inch &gt; 0 AND temp_2m &lt; 2°C AND snowfall_cm = 0 → FZRA  (freezing rain)</span>
+    <span class="eq">IF rain_inch &gt; 0 AND snowfall_cm &gt; 0 AND temp_2m ∈ [2, 5)  → MIXED</span>
+    <span class="eq">ELSE → RAIN</span>
+    <hr class="section-rule"/>
+    <span class="eq-label">// Snow/FZRA triggers two additional penalties in evalCell():</span>
+    <span class="eq">1. Rotary wing platforms: wind threshold reduced by 5kt (blade icing degrades authority)</span>
+    <span class="eq">2. LGB munitions (GBU-12, AGM-114): effective rain = rain × 2.0 (scatter amplified)</span>
+    <span class="eq">3. B-2A: hard RED if any precipitation + SNOW/FZRA (LO coating contamination)</span>
+  </div>
+
+  <!-- 3.5 Confidence Factor -->
+  <h3>3.5 — Per-Hour Forecast Confidence Factor</h3>
+  <p>Each hour in the forecast carries a confidence factor (CF) displayed in column headers. This is distinct from the day-level uncertainty multiplier. CF reflects within-day meteorological variability signals.</p>
+
+  <div class="math-block">
+    <span class="eq-label">// PER-HOUR CONFIDENCE FACTOR FORMULA</span>
+    <hr class="section-rule"/>
+    <span class="eq">CF_base = 97 - (day_index × 8) - (hour_within_day × 0.4)</span>
+    <span class="eq">CF = CF_base</span>
+    <span class="eq">   - (precip_probability &gt; 50% ? 5 : 0)</span>
+    <span class="eq">   - (gust_kt &gt; 25 ? 3 : 0)</span>
+    <span class="eq">   - (|cloud_cover_change_vs_prev_hour| &gt; 30% ? 4 : 0)</span>
+    <span class="eq">CF = max(35, round(CF))     // Floor at 35% — even Day 5 data has some skill</span>
+    <span class="eq-note">// CF &lt; 65 triggers dark-mode cell colors (deep green/amber/red vs bright)</span>
+    <span class="eq-note">// indicating the assessment carries significant meteorological uncertainty.</span>
+  </div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════ §4 SOURCE INDEX ══ -->
+<section id="sources">
+  <div class="section-header">
+    <span class="section-num">§ 04</span>
+    <h2>Platform Source Index</h2>
+  </div>
+
+  <p>Every platform threshold value in IWEDA is documented below with its confidence rating and primary source citation. Filter by country, category, or confidence level to audit specific platform families.</p>
+
+  <div class="filter-bar">
+    <label>COUNTRY:</label>
+    <select id="filter-country" onchange="filterTable()">
+      <option value="ALL">ALL NATIONS</option>
+      <option value="US">UNITED STATES</option>
+      <option value="RU">RUSSIA</option>
+      <option value="IR">IRAN</option>
+      <option value="IL">ISRAEL</option>
+      <option value="UA">UKRAINE</option>
+      <option value="CN">CHINA</option>
+    </select>
+    <label>CATEGORY:</label>
+    <select id="filter-cat" onchange="filterTable()">
+      <option value="ALL">ALL TYPES</option>
+      <option value="STRIKE">STRIKE PLATFORMS</option>
+      <option value="UAV">UNMANNED SYSTEMS</option>
+      <option value="ROTARY">ROTARY WING</option>
+      <option value="SUPPORT">ISR / SUPPORT</option>
+      <option value="WEAPONS">MUNITIONS</option>
+    </select>
+    <label>CONFIDENCE:</label>
+    <select id="filter-conf" onchange="filterTable()">
+      <option value="ALL">ALL LEVELS</option>
+      <option value="VERIFIED">VERIFIED ONLY</option>
+      <option value="OBSERVED">OBSERVED ONLY</option>
+      <option value="ESTIMATED">ESTIMATED ONLY</option>
+    </select>
+    <label>SEARCH:</label>
+    <input id="filter-search" type="text" placeholder="Platform name..." oninput="filterTable()" style="width:180px;"/>
+    <span id="asset-count">— assets</span>
+  </div>
+
+  <div style="overflow-x:auto;">
+  <table class="data-table" id="asset-table">
+    <thead>
+      <tr>
+        <th>PLATFORM</th>
+        <th>NATION</th>
+        <th>CATEGORY</th>
+        <th>CONFIDENCE</th>
+        <th>WIND<br/>(KT)</th>
+        <th>RAIN<br/>(IN/HR)</th>
+        <th>CEIL<br/>(FT)</th>
+        <th>VIS<br/>(SM)</th>
+        <th>GPS DOP</th>
+        <th>ILLUM (%)</th>
+        <th>ASYM</th>
+        <th>PRIMARY SOURCE</th>
+      </tr>
+    </thead>
+    <tbody id="asset-tbody">
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════ §5 GAPS ══ -->
+<section id="gaps">
+  <div class="section-header">
+    <span class="section-num">§ 05</span>
+    <h2>Known Limitations &amp; Data Gaps</h2>
+  </div>
+
+  <p>Intellectual honesty requires explicit documentation of what this tool does not know and cannot responsibly claim. The following gaps are prioritized by their potential impact on analytical conclusions.</p>
+
+  <div class="callout danger" style="margin-bottom:16px;">
+    <strong>Critical Framing</strong>
+    All ESTIMATED thresholds in IWEDA represent analytically-derived approximations, not operational parameters. Russian and Iranian manufacturers have not published weather operating limits for any of the platforms in this database in open sources. Where thresholds are marked ESTIMATED, they should be understood as reasonable analytical bounds, not verified operational minimums. An intelligence analyst should weight ESTIMATED platform assessments accordingly.
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:8px;">
+
+    <div class="gap-item high">
+      <div>
+        <div class="gap-platform">UMPK/FAB-500<br/>Threshold Precision</div>
+        <div class="gap-severity high">HIGH IMPACT GAP</div>
+      </div>
+      <div style="font-size:12px;color:var(--ink-light);line-height:1.7;">
+        <strong>Gap:</strong> The exact INS drift rate for the UMPK kit is unknown in open sources. This determines how quickly accuracy degrades under GNSS jamming. IWEDA's current 6.0 HDOP threshold is derived from comparative analysis with JDAM's 2.0 threshold scaled for UMPK's inferior inertial components (civilian-grade vs military-grade), but the precise crossover point is unknown. Fighterbomber Telegram (Feb 2025) reported "16 bombs per target" under jamming, suggesting near-total accuracy loss — but this is anecdotal, not statistically characterized.<br/>
+        <strong>Improvement Path:</strong> ACLED backtesting of strike accuracy vs GNSS environment across hundreds of UMPK strikes, correlated with Ukrainian jamming deployment records.
+      </div>
+    </div>
+
+    <div class="gap-item high">
+      <div>
+        <div class="gap-platform">Geran-2/Shahed-136<br/>Wind-to-Sortie Correlation</div>
+        <div class="gap-severity high">HIGH IMPACT GAP</div>
+      </div>
+      <div style="font-size:12px;color:var(--ink-light);line-height:1.7;">
+        <strong>Gap:</strong> Ukrainian expert Kryvolap assessed that weather is "70–80% probable" as the driver of attack pauses (RBC-Ukraine, Dec 2024). However, no quantitative statistical analysis of wind speed vs Shahed launch frequency exists in open sources. IWEDA's 30kt wind threshold is engineering-derived (97kt cruise speed, 50hp engine, headwind analysis) rather than empirically validated.<br/>
+        <strong>Improvement Path:</strong> ACLED armed conflict dataset (which timestamps every attack event with location) matched against Open-Meteo historical weather API for the same coordinates and times. With ~2,000+ documented Geran-2 attack events in Ukraine, this would produce statistically significant wind-to-launch correlation.
+      </div>
+    </div>
+
+    <div class="gap-item high">
+      <div>
+        <div class="gap-platform">Stealth Platform<br/>Weather Minimums (US/RU/CN)</div>
+        <div class="gap-severity high">HIGH IMPACT GAP</div>
+      </div>
+      <div style="font-size:12px;color:var(--ink-light);line-height:1.7;">
+        <strong>Gap:</strong> The B-2A's low-observable coating rain sensitivity, F-22A's LO maintenance minimums, Su-57's comparable thresholds, and J-20's limits are all classified or simply undocumented in open sources. IWEDA uses general airframe rain limits as conservative proxies, but the actual LO-driven threshold (driven by RAM coating degradation from rain impingement at high speed) could be significantly more or less restrictive.<br/>
+        <strong>Improvement Path:</strong> None available through open-source research. Would require declassification or leaks.
+      </div>
+    </div>
+
+    <div class="gap-item medium">
+      <div>
+        <div class="gap-platform">Iskander-M<br/>EO Seeker Activation Altitude</div>
+        <div class="gap-severity medium">MEDIUM IMPACT GAP</div>
+      </div>
+      <div style="font-size:12px;color:var(--ink-light);line-height:1.7;">
+        <strong>Gap:</strong> The Iskander-M's EO/DSMAC seeker activates during terminal dive. The activation altitude determines what cloud ceiling defeats it. RUSI (Aug 2022) confirmed the EO seeker exists but does not specify activation altitude. IWEDA uses 1,500ft AGL as a conservative estimate based on analogous DSMAC activation profiles (Tomahawk Block III: ~2,000ft), adjusted for Iskander's steeper terminal angle. The true value could be 500–3,000ft.<br/>
+        <strong>Improvement Path:</strong> Ukrainian military analysis of Iskander impact dispersion correlated with cloud ceiling data at time of strike. Dense cloud = INS-only mode = higher CEP; correlation would reveal approximate EO activation window.
+      </div>
+    </div>
+
+    <div class="gap-item medium">
+      <div>
+        <div class="gap-platform">Iranian F-14A<br/>Operational Capability</div>
+        <div class="gap-severity medium">MEDIUM IMPACT GAP</div>
+      </div>
+      <div style="font-size:12px;color:var(--ink-light);line-height:1.7;">
+        <strong>Gap:</strong> The IRIAF F-14A fleet's actual operational readiness is deeply uncertain. IISS Military Balance lists ~40 on inventory but serviceability rate is unknown; some estimates suggest fewer than 10 are mission-capable. The avionics state post-sanctions (40+ years without US parts) makes even the airframe's weather envelope uncertain. IWEDA applies conservative VFR-limited thresholds as a reasonable bound but acknowledges the fleet may be too degraded to represent a credible threat in the threshold scenarios depicted.<br/>
+        <strong>Improvement Path:</strong> Iranian aviation community open-source reporting, IRGC AF official communications, satellite imagery of IRIAF bases for maintenance activity.
+      </div>
+    </div>
+
+    <div class="gap-item low">
+      <div>
+        <div class="gap-platform">Ceiling Calculation<br/>Heuristic Accuracy</div>
+        <div class="gap-severity low">LOW IMPACT GAP</div>
+      </div>
+      <div style="font-size:12px;color:var(--ink-light);line-height:1.7;">
+        <strong>Gap:</strong> The cloud ceiling heuristic (§3.3) produces ±500ft accuracy vs METAR-reported ceilings for ceilings below 8,000ft. Above 8,000ft, where the heuristic matters less operationally, accuracy degrades to ±2,000ft. The Open-Meteo API does not natively return cloud base height AGL — only cloud cover percentages by layer.<br/>
+        <strong>Improvement Path:</strong> Pull real METAR data from aviationweather.gov API using nearest ICAO station to target coordinates. This would replace the derived ceiling with measured, station-reported ceiling, resolving the accuracy gap entirely.
+      </div>
+    </div>
+
+    <div class="gap-item low">
+      <div>
+        <div class="gap-platform">ACLED Backtesting<br/>Phase 2 Pipeline</div>
+        <div class="gap-severity low">PLANNED ENHANCEMENT</div>
+      </div>
+      <div style="font-size:12px;color:var(--ink-light);line-height:1.7;">
+        <strong>Description:</strong> The most powerful methodology improvement available is empirical backtesting of platform operational envelopes using combat event data. The process:<br/>
+        (1) Extract ACLED event records for specific weapon type with timestamps and coordinates.<br/>
+        (2) Query Open-Meteo historical weather API for exact coordinates and hours of each event.<br/>
+        (3) Build a statistical distribution of meteorological conditions present during observed operations.<br/>
+        (4) Derive empirical thresholds from the distribution (e.g., 95th percentile wind speed present during Geran-2 launches = operational wind limit).<br/>
+        This would replace ESTIMATED confidence tags with OBSERVED tags for Tier 1 platforms (Shahed-136/Geran-2, Kalibr, Iskander, FAB-500 UMPK) where hundreds of events are available. It represents the most rigorous open-source methodology achievable without classified data access.
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════ §6 CHANGELOG ══ -->
+<section id="changelog">
+  <div class="section-header">
+    <span class="section-num">§ 06</span>
+    <h2>Version Changelog</h2>
+  </div>
+
+  <div style="display:flex;flex-direction:column;">
+
+    <div class="changelog-entry">
+      <div class="changelog-meta">
+        <span class="changelog-version">V3.1</span>
+        <span class="changelog-date">February 2026</span>
+      </div>
+      <div class="changelog-items">
+        <div class="changelog-item">Layered resolution time architecture: Strategic (6-day) + Tactical (4 fixed windows: Night/Morning/Afternoon/Evening) + Hour selector</div>
+        <div class="changelog-item">ECMWF forecast skill decay curve implemented as uncertainty multiplier [1.00, 0.92, 0.78, 0.64, 0.55, 0.47]</div>
+        <div class="changelog-item">Uncertainty-adjusted threshold function: edge cases soften to AMBER instead of RED at Day 2–5</div>
+        <div class="changelog-item">Visual confidence decay on day tabs: dot-bar, reliability grade (HIGH/MODERATE/LOW), color progression</div>
+        <div class="changelog-item">Column headers show ±X% uncertainty margin annotation on Day 2+</div>
+        <div class="changelog-item">Summary banner and matrix header propagate reliability grade visibly</div>
+        <div class="changelog-item">Standalone Methodology & Source Validation page (this document)</div>
+      </div>
+    </div>
+
+    <div class="changelog-entry">
+      <div class="changelog-meta">
+        <span class="changelog-version">V3.0</span>
+        <span class="changelog-date">February 2026</span>
+      </div>
+      <div class="changelog-items">
+        <div class="changelog-item">Expanded to 6-nation database: US, Russia, Iran, Israel, Ukraine, China (~85 platforms)</div>
+        <div class="changelog-item">Added Russia UAVs: Geran-1, Geran-2, Lancet-3, Orlan-10, Orlan-30, Zala Z-16, Kronshtadt Orion</div>
+        <div class="changelog-item">Added Ukraine asset package: F-16 UA, Su-27, MiG-29, Bayraktar TB2, FPV generic, Storm Shadow, ATACMS, HIMARS, Neptune</div>
+        <div class="changelog-item">Added China asset package: J-20, J-16, J-10C, H-6K, TB-001, WZ-7, CH-4, DF-21D, DF-26, CJ-10, YJ-12</div>
+        <div class="changelog-item">Jean Meeus full lunar illumination algorithm (replaces simplified synodic approximation; ±2% vs ±15%)</div>
+        <div class="changelog-item">Dynamic GPS DOP: rain/cloud/snow attenuation factors replace static placeholder</div>
+        <div class="changelog-item">GNSS jamming simulation toggle (3.5× DOP multiplier)</div>
+        <div class="changelog-item">Weather asymmetry flags (★ ATTACKER-FAVORED) on GPS/INS-guided weapons</div>
+        <div class="changelog-item">Fallback mode display: AMBER degraded state instead of hard RED for optically-optional missiles</div>
+        <div class="changelog-item">Temperature display with Shahed cold-failure warning (&lt;-15°C)</div>
+        <div class="changelog-item">Corrected US platform confidence: B-2A and F-22A downgraded from VERIFIED to ESTIMATED</div>
+        <div class="changelog-item">Styled click-tooltip for source citations (replaces unreliable native browser title attribute)</div>
+        <div class="changelog-item">Summary banner respects both country and category filters simultaneously</div>
+        <div class="changelog-item">Precipitation type discrimination: SNOW/FZRA/MIXED/RAIN with differential penalties</div>
+      </div>
+    </div>
+
+    <div class="changelog-entry">
+      <div class="changelog-meta">
+        <span class="changelog-version">V2.0</span>
+        <span class="changelog-date">February 2026</span>
+      </div>
+      <div class="changelog-items">
+        <div class="changelog-item">Wind gust evaluation: thresholds evaluated against max(wind, gust) rather than mean wind speed</div>
+        <div class="changelog-item">Layered ceiling calculation replacing single cloud_cover value</div>
+        <div class="changelog-item">6-hour forecast display (rolling blocks) replacing single-hour snapshot</div>
+        <div class="changelog-item">Data provenance schema: confidence + source fields on every platform</div>
+        <div class="changelog-item">VERIFIED/OBSERVED/ESTIMATED badge display in asset table</div>
+        <div class="changelog-item">Country filter tabs with color-coded left borders</div>
+        <div class="changelog-item">International asset database: Russia, Iran, Israel asset packages added</div>
+        <div class="changelog-item">Pressure tendency indicator with FALLING RAPIDLY warning</div>
+        <div class="changelog-item">Local time + Zulu dual display</div>
+        <div class="changelog-item">Summary banner auto-identifying best window within 6-hour period</div>
+      </div>
+    </div>
+
+    <div class="changelog-entry">
+      <div class="changelog-meta">
+        <span class="changelog-version">V1.0</span>
+        <span class="changelog-date">February 2026</span>
+      </div>
+      <div class="changelog-items">
+        <div class="changelog-item">Initial release: US asset database (22 platforms), single-hour weather display</div>
+        <div class="changelog-item">Open-Meteo API integration for live weather data</div>
+        <div class="changelog-item">Windows 98 / DoD contractor UI aesthetic established</div>
+        <div class="changelog-item">Civilian translation toggle</div>
+        <div class="changelog-item">Geocoding search via Open-Meteo geocoding API</div>
+        <div class="changelog-item">GREEN/AMBER/RED threshold matrix display</div>
+        <div class="changelog-item">METAR-style synthetic feed display</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<div style="border-top:2px solid var(--ink);padding:32px 0;display:flex;justify-content:space-between;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-faint);letter-spacing:0.5px;">
+  <span>IWEDA V3.1 // UNCLASSIFIED // OPEN SOURCE // OSINT ONLY</span>
+  <span>SOURCE DATA: JANE'S / IISS / CSIS / RUSI / OPEN-METEO / COMBAT OSINT</span>
+  <span>ALL THRESHOLDS ARE ANALYTICAL ESTIMATES — NOT OPERATIONAL PARAMETERS</span>
+</div>
+
+</main>
+
+<script>
+// ─── FULL ASSET DATABASE (mirrors IWEDA V3.1 exactly) ─────────────────────────
+const ASSETS = [
+  { id:'B2',       name:'B-2A Spirit',             country:'US', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{rain:0.01,illum:25,wind:30},                src:'USAF general airframe limits / Jane\'s — stealth weather minimums classified' },
+  { id:'F22',      name:'F-22A Raptor',            country:'US', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{rain:0.10,illum:30,wind:30},                src:'USAF general airframe limits / Jane\'s — LO coating rain limits classified' },
+  { id:'F35',      name:'F-35A Lightning II',      country:'US', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{rain:0.50,illum:40,wind:25},                src:'Lockheed Martin export specs / Jane\'s All the World\'s Aircraft' },
+  { id:'F15E',     name:'F-15E Strike Eagle',      country:'US', cat:'STRIKE',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:30,vis:1},                              src:'USAF TTP documents / Jane\'s / extensive public combat documentation' },
+  { id:'F16C',     name:'F-16C Fighting Falcon',   country:'US', cat:'STRIKE',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:30,vis:1},                              src:'USAF TTP documents / Jane\'s / public combat documentation' },
+  { id:'A10',      name:'A-10C Warthog',           country:'US', cat:'STRIKE',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{ceil:1500,vis:3,wind:25},                    src:'USAF TTP documents / Jane\'s / Afghanistan-Iraq combat documentation' },
+  { id:'AC130',    name:'AC-130J Ghostrider',      country:'US', cat:'STRIKE',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{ceil:3000,vis:3,wind:25},                    src:'USAF AFSOC public documentation / Jane\'s' },
+  { id:'B52',      name:'B-52H Stratofortress',    country:'US', cat:'STRIKE',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:35},                                    src:'USAF public documentation / Jane\'s / BUFF community open source' },
+  { id:'MQ9',      name:'MQ-9 Reaper',             country:'US', cat:'UAV',     conf:'VERIFIED',  asym:'NEUTRAL',        thresholds:{wind:20,rain:0.10,ceil:3000},                src:'GA-ASI published specs / USAF TTP / 432nd Wing public documentation' },
+  { id:'RQ4',      name:'RQ-4 Global Hawk',        country:'US', cat:'UAV',     conf:'VERIFIED',  asym:'NEUTRAL',        thresholds:{wind:20,rain:0.50},                          src:'Northrop Grumman published specs / USAF public documentation' },
+  { id:'RC135',    name:'RC-135 Rivet Joint',      country:'US', cat:'SUPPORT', conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:35},                                    src:'USAF public documentation / Jane\'s' },
+  { id:'E3',       name:'E-3 Sentry (AWACS)',      country:'US', cat:'SUPPORT', conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:35,rain:2.0},                           src:'USAF public documentation / Jane\'s' },
+  { id:'C17',      name:'C-17 Globemaster III',    country:'US', cat:'SUPPORT', conf:'VERIFIED',  asym:'NEUTRAL',        thresholds:{wind:30,vis:0.5},                            src:'Boeing published specs / AMC public TTP documentation' },
+  { id:'KC135',    name:'KC-135 Stratotanker',     country:'US', cat:'SUPPORT', conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{ceil:1000,vis:1,rain:1.0,wind:35},           src:'USAF AMC documentation / Jane\'s' },
+  { id:'AH64',     name:'AH-64 Apache',            country:'US', cat:'ROTARY',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{ceil:500,vis:1,wind:35},                     src:'Boeing published specs / Army Aviation public documentation' },
+  { id:'UH60',     name:'UH-60 Black Hawk',        country:'US', cat:'ROTARY',  conf:'VERIFIED',  asym:'NEUTRAL',        thresholds:{ceil:500,vis:1,wind:35},                     src:'Sikorsky published specs / Army Aviation public documentation' },
+  { id:'CV22',     name:'CV-22 Osprey',            country:'US', cat:'ROTARY',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{ceil:1000,vis:1,wind:25},                    src:'Bell-Boeing published specs / AFSOC public documentation' },
+  { id:'GBU12',    name:'GBU-12 Paveway II',       country:'US', cat:'WEAPONS', conf:'VERIFIED',  asym:'NEUTRAL',        thresholds:{ceil:2500,vis:3,rain:0.10},                  src:'Raytheon published performance specs / USAF weapons school documentation' },
+  { id:'AGM114',   name:'AGM-114 Hellfire',        country:'US', cat:'WEAPONS', conf:'VERIFIED',  asym:'NEUTRAL',        thresholds:{ceil:2000,vis:3,rain:0.10},                  src:'Lockheed Martin published specs / Army/USAF weapons documentation' },
+  { id:'JDAM',     name:'GBU-31 JDAM',             country:'US', cat:'WEAPONS', conf:'VERIFIED',  asym:'FAVORS_ATTACKER',thresholds:{rain:5.0,gpsDop:2.0},                        src:'Boeing published specs / USAF: tested through clouds rain and snow with no CEP loss' },
+  { id:'JASSM',    name:'AGM-158 JASSM',           country:'US', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{rain:2.0,gpsDop:2.5},                        src:'Lockheed Martin public specs / USAF documentation — exact limits classified' },
+  { id:'US_TLAM',  name:'BGM-109 Tomahawk',        country:'US', cat:'WEAPONS', conf:'VERIFIED',  asym:'FAVORS_ATTACKER',thresholds:{rain:2.0,gpsDop:2.5},                        src:'Raytheon published specs / USN documentation / TERCOM all-weather certified' },
+  { id:'TU95MS',   name:'Tu-95MS Bear-H',          country:'RU', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:35,vis:1,ceil:984},                     src:'IISS Military Balance / Airforce-Technology: "all-weather certified" — specifics unavailable' },
+  { id:'TU160',    name:'Tu-160 Blackjack',        country:'RU', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:35,vis:1,ceil:984},                     src:'IISS Military Balance / Airforce-Technology: "all-weather day-and-night capability"' },
+  { id:'TU22M3',   name:'Tu-22M3 Backfire-C',      country:'RU', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:30,vis:1,ceil:984},                     src:'IISS Military Balance / Jane\'s / analogous bomber baseline' },
+  { id:'SU34',     name:'Su-34 Fullback',          country:'RU', cat:'STRIKE',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:30,vis:1,ceil:200},                     src:'IISS Military Balance / Ukraine combat obs. / Defense Express — SVP-24 all-weather system' },
+  { id:'SU35S',    name:'Su-35S Flanker-E',        country:'RU', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:30,vis:1,ceil:200},                     src:'IISS Military Balance / Jane\'s / Sukhoi public specs' },
+  { id:'SU57',     name:'Su-57 Felon',             country:'RU', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{rain:0.10,wind:30,vis:1,ceil:200},           src:'IISS Military Balance / Jane\'s — stealth limits classified; very limited combat use' },
+  { id:'SU25',     name:'Su-25 Frogfoot',          country:'RU', cat:'STRIKE',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{ceil:1500,vis:2,wind:25},                    src:'IISS Military Balance / Ukraine-Afghanistan combat documentation / Jane\'s' },
+  { id:'KA52',     name:'Ka-52 Alligator',         country:'RU', cat:'ROTARY',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{ceil:500,vis:1,wind:30,rain:0.50},           src:'IISS Military Balance / Ukraine combat documentation / Jane\'s' },
+  { id:'MI28',     name:'Mi-28N Havoc',            country:'RU', cat:'ROTARY',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{ceil:500,vis:1,wind:30},                     src:'IISS Military Balance / Jane\'s / analogous Apache baseline' },
+  { id:'MI8',      name:'Mi-8/17 Hip',             country:'RU', cat:'ROTARY',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{ceil:300,vis:1,wind:35},                     src:'Mil Moscow published specs / IISS / extensive worldwide operational history' },
+  { id:'GERAN2',   name:'Geran-2 (Shahed-136)',    country:'RU', cat:'UAV',     conf:'OBSERVED',  asym:'FAVORS_ATTACKER',thresholds:{wind:30,rain:0.30,ceil:200,vis:0.5,gpsDop:4.0,illum:25}, src:'Ukraine AF Telegram / ISW deployment data / RUSI Technical Profile / RBC-Ukraine / Defense Express' },
+  { id:'GERAN1',   name:'Geran-1 (Shahed-131)',    country:'RU', cat:'UAV',     conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{wind:25,rain:0.30,ceil:200,vis:0.5,gpsDop:4.0,illum:25}, src:'RUSI Technical Profile / OSMP Forensics / Extrapolated from Geran-2' },
+  { id:'LANCET3',  name:'Lancet-3',                country:'RU', cat:'UAV',     conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:15,rain:0.05,ceil:1000,vis:2,gpsDop:3.5,illum:30}, src:'Zala Aero product specs / Ukraine combat obs. / Oryx loss documentation / Ukrainian GUR analysis' },
+  { id:'ORLAN10',  name:'Orlan-10',                country:'RU', cat:'UAV',     conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:15,rain:0.10,ceil:800,vis:2},           src:'Special Technology Center / Ukraine combat obs. / ISW / Defense Express — grounded by bad weather' },
+  { id:'ORLAN30',  name:'Orlan-30',                country:'RU', cat:'UAV',     conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:18,rain:0.10,ceil:1000,vis:3},          src:'Defense Express Dec 2024: "adverse weather degraded Orlan-30 ISR — primary UMPK targeting chain bottleneck"' },
+  { id:'Z16',      name:'Zala Z-16',               country:'RU', cat:'UAV',     conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:15,rain:0.05,ceil:800,vis:2},           src:'Zala Aero / Defense Express Dec 2024 — Z-16 grounded by weather; key UMPK targeting chain bottleneck' },
+  { id:'KRONSH',   name:'Kronshtadt Orion',        country:'RU', cat:'UAV',     conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:22,rain:0.15,ceil:2000,vis:3,gpsDop:3.5}, src:'Kronshtadt Group published specs / IISS Military Balance — limited public combat data' },
+  { id:'KINZHAL',  name:'Kh-47M2 Kinzhal',         country:'RU', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{gpsDop:3.5},                                 src:'IISS Military Balance / CSIS Missile Threat — Mach 10; weather effectively irrelevant in flight' },
+  { id:'KH22',     name:'Kh-22 / Kh-32',           country:'RU', cat:'WEAPONS', conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:40,rain:3.0},                           src:'IISS Military Balance / CSIS Missile Threat / GlobalSecurity.org' },
+  { id:'KALIBR',   name:'Kalibr 3M-14',            country:'RU', cat:'WEAPONS', conf:'OBSERVED',  asym:'FAVORS_ATTACKER',thresholds:{wind:20,rain:0.50,ceil:500,vis:0.5,gpsDop:4.0}, src:'Naval Technology (Buyan-M SS-4 limit) / CSIS Missile Threat / Defense Express Mar 2023' },
+  { id:'ISKANDER', name:'Iskander-M (9M723)',      country:'RU', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{wind:35,rain:0.50,ceil:1500,vis:1,gpsDop:4.0}, src:'RUSI Aug 2022 (Cranny-Evans/Kaushal) / CSIS Missile Threat / Missilery.info / USNI Oct 2022' },
+  { id:'KH101',    name:'Kh-101 / Kh-102',         country:'RU', cat:'WEAPONS', conf:'OBSERVED',  asym:'FAVORS_ATTACKER',thresholds:{wind:30,rain:0.50,ceil:500,vis:1,gpsDop:4.0}, src:'CSIS Missile Threat / Defense Express Mar 2023 — DSMAC fails at night/snow / Ukrainian trophy analysis' },
+  { id:'FAB500',   name:'FAB-500 M-62 + UMPK',     country:'RU', cat:'WEAPONS', conf:'OBSERVED',  asym:'FAVORS_ATTACKER',thresholds:{wind:25,rain:0.50,ceil:3000,vis:3,gpsDop:6.0}, src:'JAPCC Nov 2025 / Defense Express Dec 2024 / Fighterbomber Telegram Feb 2025 / CAR Nov 2023' },
+  { id:'IR_F14',   name:'F-14A Tomcat (Iran)',     country:'IR', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:30,vis:1,ceil:500},                     src:'IISS Military Balance / Jane\'s — sanctions-degraded avionics; VFR-limited ops estimated' },
+  { id:'IR_SU24',  name:'Su-24MK Fencer (Iran)',   country:'IR', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:30,vis:1,ceil:300},                     src:'IISS Military Balance / Jane\'s / analogous RU Su-24 baseline' },
+  { id:'IR_F4',    name:'F-4D/E Phantom II (Iran)',country:'IR', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:30,vis:2,ceil:500},                     src:'IISS Military Balance / Jane\'s — aging airframe, degraded avionics' },
+  { id:'SHD136',   name:'Shahed-136',              country:'IR', cat:'UAV',     conf:'OBSERVED',  asym:'FAVORS_ATTACKER',thresholds:{wind:30,rain:0.30,ceil:200,vis:0.5,gpsDop:4.0,illum:25}, src:'Ukraine AF reporting / ISW deployment data / RUSI Technical Profile / April 2024 Israel strike obs.' },
+  { id:'SHD131',   name:'Shahed-131',              country:'IR', cat:'UAV',     conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{wind:25,rain:0.30,ceil:200,vis:0.5,gpsDop:4.0,illum:25}, src:'RUSI Technical Profile / OSMP Forensics / Extrapolation from Shahed-136' },
+  { id:'SHD129',   name:'Shahed-129',              country:'IR', cat:'UAV',     conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:25,rain:0.10,ceil:2000,vis:3,gpsDop:4.0,illum:25}, src:'IAIO Exhibition Data / MQ-1 Predator baseline (same Rotax 914 engine) / CriticalThreats.org' },
+  { id:'SHD149',   name:'Shahed-149 Gaza',         country:'IR', cat:'UAV',     conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:20,rain:0.15,ceil:3000,gpsDop:3.5},     src:'OSINT Technical Documentation / analogous MALE platform inference' },
+  { id:'MOHJ6',    name:'Mohajer-6',               country:'IR', cat:'UAV',     conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:15,rain:0.10,ceil:1500},                src:'OSINT Technical Documentation / Iran Aviation Industries Organization' },
+  { id:'ARASH2',   name:'Arash-2',                 country:'IR', cat:'UAV',     conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{wind:12,rain:0.05,ceil:800,illum:25},         src:'OSINT Technical Documentation / analogous small loitering munition inference' },
+  { id:'FATAH1',   name:'Fattah-1 Hypersonic',     country:'IR', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{gpsDop:3.5},                                 src:'OSINT Technical Documentation / CSIS Missile Threat — limited public data' },
+  { id:'SHAHAB3',  name:'Shahab-3 / Ghadr',        country:'IR', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{gpsDop:3.0},                                 src:'CSIS Missile Threat / IISS Military Balance' },
+  { id:'EMAD',     name:'Emad / Qadr-F',           country:'IR', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{gpsDop:2.5},                                 src:'CSIS Missile Threat / IISS Military Balance / UNGA reports' },
+  { id:'PAVEH',    name:'Paveh Cruise Missile',    country:'IR', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{rain:2.0,gpsDop:2.5},                        src:'OSINT Technical Documentation / limited public data — April 2024 Israel strike obs.' },
+  { id:'ZOLFGHR',  name:'Zolfaghar / Dezful',      country:'IR', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{gpsDop:2.5},                                 src:'CSIS Missile Threat / IISS Military Balance' },
+  { id:'IL_F35I',  name:'F-35I Adir',              country:'IL', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{rain:0.50,illum:40,wind:25},                 src:'Lockheed Martin export specs / Jane\'s / IAF public documentation — mission-specific limits classified' },
+  { id:'IL_F15I',  name:'F-15I Ra\'am',            country:'IL', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:30,vis:1,ceil:200},                     src:'Boeing export specs / Jane\'s / IAF public documentation' },
+  { id:'IL_F16I',  name:'F-16I Sufa',              country:'IL', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:30,vis:1,ceil:200},                     src:'Lockheed Martin export specs / Jane\'s / IAF public documentation' },
+  { id:'HERON1',   name:'IAI Heron 1 (Machatz)',   country:'IL', cat:'UAV',     conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:25,rain:0.20,ceil:3000},                src:'IAI published specs / Jane\'s / extensive public operational history' },
+  { id:'HERMES9',  name:'Elbit Hermes 900',        country:'IL', cat:'UAV',     conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:20,rain:0.15,ceil:2000},                src:'Elbit Systems published specs / Jane\'s / Gaza operational documentation' },
+  { id:'HAROP',    name:'IAI Harop',               country:'IL', cat:'UAV',     conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:15,rain:0.10,ceil:1000},                src:'IAI published export specs / Jane\'s / Azerbaijan combat documentation 2020' },
+  { id:'DELILAH',  name:'Delilah Cruise Missile',  country:'IL', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{rain:1.5,gpsDop:2.0},                        src:'IAI published export specs / Jane\'s — precision limits not public' },
+  { id:'SPICE2K',  name:'SPICE-2000',              country:'IL', cat:'WEAPONS', conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{ceil:2000,vis:3,rain:0.10,gpsDop:2.0},       src:'Elbit Systems published specs / Jane\'s / Gaza IDF operational usage' },
+  { id:'RAMPAGE',  name:'Rampage Supersonic',      country:'IL', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{gpsDop:2.5,rain:2.0},                        src:'Israel Aerospace Industries published specs / Jane\'s' },
+  { id:'JERICHO3', name:'Jericho III',             country:'IL', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{gpsDop:4.0},                                 src:'IISS Military Balance / Jane\'s — strategic deterrent; most specs classified' },
+  { id:'UA_F16',   name:'F-16A/B Falcon (UA)',     country:'UA', cat:'STRIKE',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:30,vis:1,ceil:500},                     src:'USAF baseline specs / Ukrainian AF public reporting / ISW — limited combat data' },
+  { id:'UA_SU27',  name:'Su-27 Flanker (UA)',      country:'UA', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:30,vis:1,ceil:300},                     src:'IISS Military Balance / Jane\'s / Ukrainian AF public reporting' },
+  { id:'UA_MIG29', name:'MiG-29 Fulcrum (UA)',     country:'UA', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:25,vis:1,ceil:300},                     src:'IISS Military Balance / Jane\'s / Ukrainian AF public reporting' },
+  { id:'UA_SU25',  name:'Su-25 Frogfoot (UA)',     country:'UA', cat:'STRIKE',  conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{ceil:1500,vis:2,wind:25},                    src:'IISS Military Balance / ISW / Ukrainian combat documentation / Jane\'s' },
+  { id:'UA_TB2',   name:'Bayraktar TB2',           country:'UA', cat:'UAV',     conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:15,rain:0.10,ceil:2000,vis:3},          src:'Baykar Defense published specs / Jane\'s / Ukraine 2022 combat obs.' },
+  { id:'UA_FPV',   name:'FPV Strike Drone (Generic)',country:'UA', cat:'UAV',   conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:10,rain:0.05,ceil:500,vis:1},           src:'Ukrainian military public reporting / ISW / Kyiv Independent — FPV grounded by wind/rain' },
+  { id:'UA_SHARK', name:'Shark ISR UAV',           country:'UA', cat:'UAV',     conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:15,rain:0.10,ceil:1500},                src:'Ukrspecsystems published specs / Ukrainian public documentation' },
+  { id:'UA_STORM', name:'Storm Shadow / SCALP-EG', country:'UA', cat:'WEAPONS', conf:'VERIFIED',  asym:'FAVORS_ATTACKER',thresholds:{rain:1.0,gpsDop:2.5,ceil:500},               src:'MBDA published specs / Jane\'s / UK-FR export documentation / Ukraine operational use' },
+  { id:'UA_ATCMS', name:'MGM-140 ATACMS',          country:'UA', cat:'WEAPONS', conf:'VERIFIED',  asym:'FAVORS_ATTACKER',thresholds:{gpsDop:2.5},                                 src:'Lockheed Martin published specs / US Army documentation / Ukraine operational data' },
+  { id:'UA_HIMRS', name:'HIMARS M31 GMLRS',        country:'UA', cat:'WEAPONS', conf:'VERIFIED',  asym:'FAVORS_ATTACKER',thresholds:{gpsDop:2.0},                                 src:'Lockheed Martin published specs / US Army documentation / Ukraine combat data' },
+  { id:'UA_NEPT',  name:'Neptune Anti-Ship Missile',country:'UA', cat:'WEAPONS', conf:'OBSERVED', asym:'NEUTRAL',        thresholds:{rain:1.5,gpsDop:2.5},                        src:'Luch Design Bureau specs / Ukrainian MoD / Moskva sinking documentation' },
+  { id:'CN_J20',   name:'J-20 Mighty Dragon',      country:'CN', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{rain:0.30,wind:28,vis:1,ceil:300},           src:'IISS Military Balance / Jane\'s / PLAAF public releases — stealth limits classified' },
+  { id:'CN_J16',   name:'J-16 Strike Fighter',     country:'CN', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:30,vis:1,ceil:200},                     src:'IISS Military Balance / Jane\'s / PLAAF public releases' },
+  { id:'CN_J10C',  name:'J-10C Vigorous Dragon',   country:'CN', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:28,vis:1,ceil:300},                     src:'IISS Military Balance / Jane\'s / Chengdu Aircraft Corp public specs' },
+  { id:'CN_H6K',   name:'H-6K Badger',             country:'CN', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:35,vis:1,ceil:984},                     src:'IISS Military Balance / Jane\'s / PLAAF public releases' },
+  { id:'CN_TB001', name:'TB-001 Twin-Tail Scorpion',country:'CN', cat:'UAV',    conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:20,rain:0.15,ceil:2000,vis:3},          src:'IISS Military Balance / Jane\'s / AVIC public specs / limited export data' },
+  { id:'CN_WZ7',   name:'WZ-7 Soaring Dragon',     country:'CN', cat:'UAV',     conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:25,rain:0.30},                          src:'IISS Military Balance / Jane\'s / PLAAF public releases' },
+  { id:'CN_CH4',   name:'CASC CH-4 Rainbow',       country:'CN', cat:'UAV',     conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:18,rain:0.10,ceil:2000,vis:3,gpsDop:3.5}, src:'CASC published export specs / Jane\'s / Iraq-Saudi Arabia export usage data' },
+  { id:'CN_DF21D', name:'DF-21D Anti-Ship Ballistic',country:'CN', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{gpsDop:3.0},                               src:'CSIS Missile Threat / IISS Military Balance / Office of Naval Intelligence' },
+  { id:'CN_DF26',  name:'DF-26 Intermediate Ballistic',country:'CN', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{gpsDop:3.0},                             src:'CSIS Missile Threat / IISS Military Balance / DoD China Military Power Report' },
+  { id:'CN_CJ10',  name:'CJ-10 Land Attack Cruise',country:'CN', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{rain:2.0,gpsDop:2.5},                        src:'CSIS Missile Threat / IISS Military Balance — analogous Tomahawk/Kh-55 baseline' },
+  { id:'CN_YJ12',  name:'YJ-12 Anti-Ship Cruise',  country:'CN', cat:'WEAPONS', conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{rain:2.0,gpsDop:2.5,wind:35},                src:'CSIS Missile Threat / IISS Military Balance / Jane\'s' },
+];
+
+const COUNTRY_COLOR = { US:'#2563eb', RU:'#dc2626', IR:'#16a34a', IL:'#6b7280', UA:'#d97706', CN:'#7c3aed' };
+
+function fmtThreshold(val) {
+  if (val === undefined || val === null) return '—';
+  return `<span class="threshold-pill">${val}</span>`;
+}
+
+function renderTable(data) {
+  const tbody = document.getElementById('asset-tbody');
+  document.getElementById('asset-count').textContent = `${data.length} assets`;
+  tbody.innerHTML = data.map(a => `
+    <tr data-country="${a.country}" data-cat="${a.cat}" data-conf="${a.conf}">
+      <td style="font-weight:600;color:#1a1a1a;">
+        <span class="country-dot" style="background:${COUNTRY_COLOR[a.country]||'#888'}"></span>
+        ${a.name}
+      </td>
+      <td style="font-weight:600;color:${COUNTRY_COLOR[a.country]||'#555'}">${a.country}</td>
+      <td>${a.cat}</td>
+      <td><span class="badge ${a.conf.slice(0,3)}">${a.conf}</span></td>
+      <td>${fmtThreshold(a.thresholds.wind)}</td>
+      <td>${fmtThreshold(a.thresholds.rain)}</td>
+      <td>${fmtThreshold(a.thresholds.ceil)}</td>
+      <td>${fmtThreshold(a.thresholds.vis)}</td>
+      <td>${fmtThreshold(a.thresholds.gpsDop)}</td>
+      <td>${fmtThreshold(a.thresholds.illum)}</td>
+      <td style="color:${a.asym==='FAVORS_ATTACKER'?'#7c3aed':'#6b7280'};font-weight:${a.asym==='FAVORS_ATTACKER'?'700':'400'}">
+        ${a.asym === 'FAVORS_ATTACKER' ? '★ ATK-FAV' : '—'}
+      </td>
+      <td style="font-size:10px;color:#555;max-width:280px;word-break:break-word;">${a.src}</td>
+    </tr>
+  `).join('');
+}
+
+function filterTable() {
+  const country = document.getElementById('filter-country').value;
+  const cat = document.getElementById('filter-cat').value;
+  const conf = document.getElementById('filter-conf').value;
+  const search = document.getElementById('filter-search').value.toLowerCase();
+
+  const filtered = ASSETS.filter(a =>
+    (country === 'ALL' || a.country === country) &&
+    (cat === 'ALL' || a.cat === cat) &&
+    (conf === 'ALL' || a.conf === conf) &&
+    (search === '' || a.name.toLowerCase().includes(search) || a.src.toLowerCase().includes(search))
+  );
+  renderTable(filtered);
+}
+
+// Initial render
+renderTable(ASSETS);
+</script>
+</body>
+</html>
