@@ -1,0 +1,1162 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+
+// ─── JEAN MEEUS MOON ILLUMINATION ─────────────────────────────────────────────
+function getMoonIllumination(date) {
+  const JD = date.getTime() / 86400000 + 2440587.5;
+  const T  = (JD - 2451545.0) / 36525;
+  const L0 = (280.46646 + T * (36000.76983 + T * 0.0003032)) % 360;
+  const M  = (357.52911 + T * (35999.05029 - T * 0.0001537)) * Math.PI / 180;
+  const C  = (1.914602 - T * (0.004817 + 0.000014 * T)) * Math.sin(M)
+           + (0.019993 - 0.000101 * T) * Math.sin(2 * M)
+           + 0.000289 * Math.sin(3 * M);
+  const sunLong  = (L0 + C) * Math.PI / 180;
+  const Lm = (218.3165 + 481267.8813 * T) * Math.PI / 180;
+  const Mm = (134.9634 + 477198.8676 * T) * Math.PI / 180;
+  const F  = (93.2721  + 483202.0175 * T) * Math.PI / 180;
+  const moonLong = Lm + (6.2888 * Math.sin(Mm) + 1.2740 * Math.sin(2*Lm - Mm)
+    + 0.6583 * Math.sin(2*Lm) + 0.2136 * Math.sin(2*Mm)
+    - 0.1851 * Math.sin(M) - 0.1143 * Math.sin(2*F)) * Math.PI / 180;
+  const i = Math.acos(Math.cos(moonLong - sunLong));
+  return Math.round(((1 + Math.cos(Math.PI - i)) / 2) * 100);
+}
+
+// ─── DYNAMIC GPS DOP ──────────────────────────────────────────────────────────
+function calcGpsDop(rainInch, cloudLow, snowCm, jammed) {
+  let d = 1.0 + rainInch * 2.5 + (cloudLow > 80 ? 0.4 : cloudLow > 60 ? 0.2 : 0) + (snowCm > 0 ? 0.6 : 0);
+  if (jammed) d *= 3.5;
+  return Math.round(d * 10) / 10;
+}
+
+// ─── CEILING FROM LAYERED CLOUDS ──────────────────────────────────────────────
+function calcCeiling(cLow, cMid, cHigh, rainInch) {
+  let c;
+  if (cLow > 50)       c = Math.max(300,  6500  - (cLow  - 50) * 120);
+  else if (cMid > 50)  c = Math.max(6500, 20000 - (cMid  - 50) * 270);
+  else if (cHigh > 50) c = 25000;
+  else                 c = 25000;
+  if (rainInch > 0) c *= 0.80;
+  return Math.round(c / 100) * 100;
+}
+
+// ─── FORECAST UNCERTAINTY ENGINE ──────────────────────────────────────────────
+function getForecastUncertainty(dayIndex) {
+  const curve = [1.00, 0.92, 0.78, 0.64, 0.55, 0.47];
+  return curve[Math.min(dayIndex, 5)];
+}
+
+function uncertaintyAdjustedStatus(violated, marginPct, uncertainty) {
+  if (!violated) return 'GREEN';
+  if (uncertainty >= 0.85) return 'RED';                    // Days 0-1
+  if (uncertainty >= 0.65) return marginPct <= 10 ? 'AMBER' : 'RED';   // Days 2-3
+  return marginPct <= 25 ? 'AMBER' : 'RED';                 // Days 4-5
+}
+
+// ─── TACTICAL WINDOW DEFINITIONS ──────────────────────────────────────────────
+const TACTICAL_WINDOWS = [
+  { id: 'NIGHT',     label: 'NIGHT',     short: '0000–0600', hours: [0,1,2,3,4,5]  },
+  { id: 'MORNING',   label: 'MORNING',   short: '0600–1200', hours: [6,7,8,9,10,11] },
+  { id: 'AFTERNOON', label: 'AFTERNOON', short: '1200–1800', hours: [12,13,14,15,16,17] },
+  { id: 'EVENING',   label: 'EVENING',   short: '1800–0000', hours: [18,19,20,21,22,23] },
+];
+
+const DAY_RELIABILITY = [
+  { label:'HIGH',      dots:5, color:'#16a34a', textColor:'#000', note:'Deterministic' },
+  { label:'HIGH',      dots:4, color:'#4ade80', textColor:'#000', note:'~92% skill' },
+  { label:'MODERATE',  dots:3, color:'#f59e0b', textColor:'#000', note:'~78% skill' },
+  { label:'MODERATE',  dots:2, color:'#f97316', textColor:'#000', note:'~64% skill' },
+  { label:'LOW',       dots:1, color:'#ef4444', textColor:'#fff', note:'~55% skill' },
+  { label:'LOW',       dots:1, color:'#7f1d1d', textColor:'#fff', note:'~47% skill — probabilistic only' },
+];
+
+// ─── CONSTANTS ─────────────────────────────────────────────────────────────────
+const CONF_COLOR = { VERIFIED:'#1e40af', OBSERVED:'#92400e', ESTIMATED:'#374151' };
+const COUNTRY_COLOR = { US:'#2563eb', RU:'#dc2626', IR:'#16a34a', IL:'#6b7280', UA:'#d97706', CN:'#7c3aed', KP:'#991b1b', SY:'#b45309', YE:'#047857' };
+const COUNTRY_NAMES = { ALL:'ALL NATIONS', US:'UNITED STATES', RU:'RUSSIA', IR:'IRAN', IL:'ISRAEL', UA:'UKRAINE', CN:'CHINA' };
+
+// ─── ASSET DATABASE ────────────────────────────────────────────────────────────
+const ASSETS = [
+  // ── UNITED STATES ─────────────────────────────────────────────────────────
+  { id:'B2',       name:'B-2A Spirit',           cat:'STRIKE',  type:'PLATFORM_STEALTH',       civ:'Stealth Bomber',          country:'US', conf:'ESTIMATED', src:'USAF general airframe limits / Jane\'s — stealth weather minimums are classified', asym:'NEUTRAL', fallback:null, thresholds:{rain:0.01,illum:25,wind:30} },
+  { id:'F22',      name:'F-22A Raptor',          cat:'STRIKE',  type:'PLATFORM_STEALTH',       civ:'Stealth Fighter',         country:'US', conf:'ESTIMATED', src:'USAF general airframe limits / Jane\'s — LO coating rain limits classified', asym:'NEUTRAL', fallback:null, thresholds:{rain:0.10,illum:30,wind:30} },
+  { id:'F35',      name:'F-35A Lightning II',    cat:'STRIKE',  type:'PLATFORM_STEALTH',       civ:'Stealth Fighter',         country:'US', conf:'ESTIMATED', src:'Lockheed Martin export specs / Jane\'s All the World\'s Aircraft', asym:'NEUTRAL', fallback:null, thresholds:{rain:0.50,illum:40,wind:25} },
+  { id:'F15E',     name:'F-15E Strike Eagle',    cat:'STRIKE',  type:'PLATFORM_FIGHTER',       civ:'Combat Jet',              country:'US', conf:'OBSERVED',  src:'USAF TTP documents / Jane\'s / extensive public combat documentation', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:1} },
+  { id:'F16C',     name:'F-16C Fighting Falcon', cat:'STRIKE',  type:'PLATFORM_FIGHTER',       civ:'Combat Jet',              country:'US', conf:'OBSERVED',  src:'USAF TTP documents / Jane\'s / public combat documentation', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:1} },
+  { id:'A10',      name:'A-10C Warthog',         cat:'STRIKE',  type:'PLATFORM_CAS',           civ:'Close Air Support',       country:'US', conf:'OBSERVED',  src:'USAF TTP documents / Jane\'s / Afghanistan-Iraq combat documentation', asym:'NEUTRAL', fallback:null, thresholds:{ceil:1500,vis:3,wind:25} },
+  { id:'AC130',    name:'AC-130J Ghostrider',    cat:'STRIKE',  type:'PLATFORM_GUNSHIP',       civ:'Heavy Gunship',           country:'US', conf:'OBSERVED',  src:'USAF AFSOC public documentation / Jane\'s', asym:'NEUTRAL', fallback:null, thresholds:{ceil:3000,vis:3,wind:25} },
+  { id:'B52',      name:'B-52H Stratofortress',  cat:'STRIKE',  type:'PLATFORM_BOMBER',        civ:'Heavy Bomber',            country:'US', conf:'OBSERVED',  src:'USAF public documentation / Jane\'s / BUFF community open source', asym:'NEUTRAL', fallback:null, thresholds:{wind:35} },
+  { id:'MQ9',      name:'MQ-9 Reaper',           cat:'UAV',     type:'PLATFORM_UAV_TAC',       civ:'Armed Drone',             country:'US', conf:'VERIFIED',  src:'GA-ASI published specs / USAF TTP / 432nd Wing public documentation', asym:'NEUTRAL', fallback:null, thresholds:{wind:20,rain:0.10,ceil:3000} },
+  { id:'RQ4',      name:'RQ-4 Global Hawk',      cat:'UAV',     type:'PLATFORM_UAV_ISR',       civ:'Spy Drone',               country:'US', conf:'VERIFIED',  src:'Northrop Grumman published specs / USAF public documentation', asym:'NEUTRAL', fallback:null, thresholds:{wind:20,rain:0.50} },
+  { id:'RC135',    name:'RC-135 Rivet Joint',    cat:'SUPPORT', type:'SUPPORT_ISR',            civ:'Spy Plane',               country:'US', conf:'OBSERVED',  src:'USAF public documentation / Jane\'s', asym:'NEUTRAL', fallback:null, thresholds:{wind:35} },
+  { id:'E3',       name:'E-3 Sentry (AWACS)',    cat:'SUPPORT', type:'SUPPORT_C2',             civ:'Radar/Command Plane',     country:'US', conf:'OBSERVED',  src:'USAF public documentation / Jane\'s', asym:'NEUTRAL', fallback:null, thresholds:{wind:35,rain:2.0} },
+  { id:'C17',      name:'C-17 Globemaster III',  cat:'SUPPORT', type:'SUPPORT_AIRLIFT',        civ:'Cargo Plane',             country:'US', conf:'VERIFIED',  src:'Boeing published specs / AMC public TTP documentation', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:0.5} },
+  { id:'KC135',    name:'KC-135 Stratotanker',   cat:'SUPPORT', type:'SUPPORT_TANKER',         civ:'Refueling Tanker',        country:'US', conf:'OBSERVED',  src:'USAF AMC documentation / Jane\'s', asym:'NEUTRAL', fallback:null, thresholds:{ceil:1000,vis:1,rain:1.0,wind:35} },
+  { id:'AH64',     name:'AH-64 Apache',          cat:'ROTARY',  type:'PLATFORM_ROTARY_ATK',    civ:'Attack Helicopter',       country:'US', conf:'OBSERVED',  src:'Boeing published specs / Army Aviation public documentation', asym:'NEUTRAL', fallback:null, thresholds:{ceil:500,vis:1,wind:35} },
+  { id:'UH60',     name:'UH-60 Black Hawk',      cat:'ROTARY',  type:'PLATFORM_ROTARY_LIFT',   civ:'Transport Helicopter',    country:'US', conf:'VERIFIED',  src:'Sikorsky published specs / Army Aviation public documentation', asym:'NEUTRAL', fallback:null, thresholds:{ceil:500,vis:1,wind:35} },
+  { id:'CV22',     name:'CV-22 Osprey',          cat:'ROTARY',  type:'PLATFORM_TILTROTOR',     civ:'Tiltrotor Transport',     country:'US', conf:'OBSERVED',  src:'Bell-Boeing published specs / AFSOC public documentation', asym:'NEUTRAL', fallback:null, thresholds:{ceil:1000,vis:1,wind:25} },
+  { id:'GBU12',    name:'GBU-12 Paveway II',     cat:'WEAPONS', type:'MUNITION_LGB',           civ:'Laser-Guided Bomb',       country:'US', conf:'VERIFIED',  src:'Raytheon published performance specs / USAF weapons school documentation', asym:'NEUTRAL', fallback:'LGB seeker blind — reverts to unguided', thresholds:{ceil:2500,vis:3,rain:0.10} },
+  { id:'AGM114',   name:'AGM-114 Hellfire',      cat:'WEAPONS', type:'MUNITION_LGB',           civ:'Laser Missile',           country:'US', conf:'VERIFIED',  src:'Lockheed Martin published specs / Army/USAF weapons documentation', asym:'NEUTRAL', fallback:'Laser seeker blind — no guidance', thresholds:{ceil:2000,vis:3,rain:0.10} },
+  { id:'JDAM',     name:'GBU-31 JDAM',           cat:'WEAPONS', type:'MUNITION_GPS',           civ:'GPS-Guided Bomb',         country:'US', conf:'VERIFIED',  src:'Boeing published specs / USAF: tested through clouds rain and snow with no CEP loss', asym:'FAVORS_ATTACKER', fallback:'INS only — CEP ~30m', thresholds:{rain:5.0,gpsDop:2.0} },
+  { id:'JASSM',    name:'AGM-158 JASSM',         cat:'WEAPONS', type:'MUNITION_CRUISE_GPS',    civ:'Stealth Cruise Missile',  country:'US', conf:'ESTIMATED', src:'Lockheed Martin public specs / USAF documentation — exact limits classified', asym:'FAVORS_ATTACKER', fallback:'INS only — range-degraded', thresholds:{rain:2.0,gpsDop:2.5} },
+  { id:'US_TLAM',  name:'BGM-109 Tomahawk',      cat:'WEAPONS', type:'MUNITION_CRUISE_GPS',    civ:'Naval Cruise Missile',    country:'US', conf:'VERIFIED',  src:'Raytheon published specs / USN documentation / TERCOM all-weather certified', asym:'FAVORS_ATTACKER', fallback:'TERCOM only — CEP ~35m', thresholds:{rain:2.0,gpsDop:2.5} },
+  
+  // ── RUSSIA ─────────────────────────────────────────────────────────────────
+  { id:'TU95MS',   name:'Tu-95MS Bear-H',        cat:'STRIKE',  type:'PLATFORM_STRATEGIC',     civ:'Strategic Bomber',        country:'RU', conf:'ESTIMATED', src:'IISS Military Balance / Airforce-Technology: "all-weather certified" — specifics unavailable', asym:'NEUTRAL', fallback:null, thresholds:{wind:35,vis:1,ceil:984} },
+  { id:'TU160',    name:'Tu-160 Blackjack',      cat:'STRIKE',  type:'PLATFORM_STRATEGIC',     civ:'Supersonic Strat. Bomber',country:'RU', conf:'ESTIMATED', src:'IISS Military Balance / Airforce-Technology: "all-weather day-and-night capability"', asym:'NEUTRAL', fallback:null, thresholds:{wind:35,vis:1,ceil:984} },
+  { id:'TU22M3',   name:'Tu-22M3 Backfire-C',    cat:'STRIKE',  type:'PLATFORM_STRATEGIC',     civ:'Long-Range Strike Bomber',country:'RU', conf:'ESTIMATED', src:'IISS Military Balance / Jane\'s / analogous bomber baseline', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:1,ceil:984} },
+  { id:'SU34',     name:'Su-34 Fullback',        cat:'STRIKE',  type:'PLATFORM_FIGHTER_BOMBER',civ:'Strike Fighter',          country:'RU', conf:'OBSERVED',  src:'IISS Military Balance / Ukraine combat obs. / Defense Express — SVP-24 all-weather system', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:1,ceil:200} },
+  { id:'SU35S',    name:'Su-35S Flanker-E',      cat:'STRIKE',  type:'PLATFORM_FIGHTER',       civ:'Air Superiority Fighter', country:'RU', conf:'ESTIMATED', src:'IISS Military Balance / Jane\'s / Sukhoi public specs', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:1,ceil:200} },
+  { id:'SU57',     name:'Su-57 Felon',           cat:'STRIKE',  type:'PLATFORM_STEALTH',       civ:'Stealth Multirole',       country:'RU', conf:'ESTIMATED', src:'IISS Military Balance / Jane\'s — stealth limits classified; very limited combat use', asym:'NEUTRAL', fallback:null, thresholds:{rain:0.10,wind:30,vis:1,ceil:200} },
+  { id:'SU25',     name:'Su-25 Frogfoot',        cat:'STRIKE',  type:'PLATFORM_CAS',           civ:'Close Air Support',       country:'RU', conf:'OBSERVED',  src:'IISS Military Balance / Ukraine-Afghanistan combat documentation / Jane\'s', asym:'NEUTRAL', fallback:null, thresholds:{ceil:1500,vis:2,wind:25} },
+  { id:'KA52',     name:'Ka-52 Alligator',       cat:'ROTARY',  type:'PLATFORM_ROTARY_ATK',    civ:'Attack Helicopter',       country:'RU', conf:'OBSERVED',  src:'IISS Military Balance / Ukraine combat documentation / Jane\'s', asym:'NEUTRAL', fallback:null, thresholds:{ceil:500,vis:1,wind:30,rain:0.50} },
+  { id:'MI28',     name:'Mi-28N Havoc',          cat:'ROTARY',  type:'PLATFORM_ROTARY_ATK',    civ:'Attack Helicopter',       country:'RU', conf:'ESTIMATED', src:'IISS Military Balance / Jane\'s / analogous Apache baseline', asym:'NEUTRAL', fallback:null, thresholds:{ceil:500,vis:1,wind:30} },
+  { id:'MI8',      name:'Mi-8/17 Hip',           cat:'ROTARY',  type:'PLATFORM_ROTARY_LIFT',   civ:'Transport Helicopter',    country:'RU', conf:'OBSERVED',  src:'Mil Moscow published specs / IISS / extensive worldwide operational history', asym:'NEUTRAL', fallback:null, thresholds:{ceil:300,vis:1,wind:35} },
+  { id:'GERAN2',   name:'Geran-2 (Shahed-136)',  cat:'UAV',     type:'PLATFORM_UAV_LOITER',    civ:'Loitering Munition',      country:'RU', conf:'OBSERVED',  src:'Ukraine AF Telegram / ISW deployment data / RUSI Technical Profile / RBC-Ukraine / Defense Express', asym:'FAVORS_ATTACKER', fallback:'GPS/INS — low vis benefits attacker; mobile fire groups degraded', thresholds:{wind:30,rain:0.30,ceil:200,vis:0.5,gpsDop:4.0,illum:25} },
+  { id:'GERAN1',   name:'Geran-1 (Shahed-131)',  cat:'UAV',     type:'PLATFORM_UAV_LOITER',    civ:'Small Loitering Munition',country:'RU', conf:'ESTIMATED', src:'RUSI Technical Profile / OSMP Forensics / Extrapolated from Geran-2 — 32% lighter, 24% less engine power', asym:'FAVORS_ATTACKER', fallback:'GPS/INS — more wind-sensitive than Geran-2', thresholds:{wind:25,rain:0.30,ceil:200,vis:0.5,gpsDop:4.0,illum:25} },
+  { id:'LANCET3',  name:'Lancet-3',              cat:'UAV',     type:'PLATFORM_UAV_LOITER',    civ:'Precision Loitering Munition',country:'RU', conf:'OBSERVED', src:'Zala Aero product specs / Ukraine combat obs. / Oryx loss documentation / Ukrainian GUR analysis', asym:'NEUTRAL', fallback:'EO seeker — low vis degrades terminal accuracy', thresholds:{wind:15,rain:0.05,ceil:1000,vis:2,gpsDop:3.5,illum:30} },
+  { id:'ORLAN10',  name:'Orlan-10',              cat:'UAV',     type:'PLATFORM_UAV_ISR',       civ:'Recon Drone (ISR)',        country:'RU', conf:'OBSERVED',  src:'Special Technology Center / Ukraine combat obs. / ISW / Defense Express — grounded by bad weather', asym:'NEUTRAL', fallback:null, thresholds:{wind:15,rain:0.10,ceil:800,vis:2} },
+  { id:'ORLAN30',  name:'Orlan-30',              cat:'UAV',     type:'PLATFORM_UAV_ISR',       civ:'Recon/Spotter Drone',      country:'RU', conf:'OBSERVED',  src:'Defense Express Dec 2024: "adverse weather degraded Orlan-30 ISR — primary UMPK targeting chain bottleneck"', asym:'NEUTRAL', fallback:null, thresholds:{wind:18,rain:0.10,ceil:1000,vis:3} },
+  { id:'Z16',      name:'Zala Z-16',             cat:'UAV',     type:'PLATFORM_UAV_ISR',       civ:'Tactical Recon Drone',    country:'RU', conf:'OBSERVED',  src:'Zala Aero / Defense Express Dec 2024 — Z-16 grounded by weather; key UMPK targeting chain bottleneck', asym:'NEUTRAL', fallback:null, thresholds:{wind:15,rain:0.05,ceil:800,vis:2} },
+  { id:'KRONSH',   name:'Kronshtadt Orion',      cat:'UAV',     type:'PLATFORM_UAV_STRIKE',    civ:'MALE Strike Drone',        country:'RU', conf:'ESTIMATED', src:'Kronshtadt Group published specs / IISS Military Balance — limited public combat data', asym:'NEUTRAL', fallback:'EO seeker — low vis degrades targeting', thresholds:{wind:22,rain:0.15,ceil:2000,vis:3,gpsDop:3.5} },
+  { id:'KINZHAL',  name:'Kh-47M2 Kinzhal',       cat:'WEAPONS', type:'MUNITION_HYPERSONIC',    civ:'Hypersonic Aeroballistic',country:'RU', conf:'ESTIMATED', src:'IISS Military Balance / CSIS Missile Threat — Mach 10; weather effectively irrelevant in flight', asym:'FAVORS_ATTACKER', fallback:'INS only — still hypersonic', thresholds:{gpsDop:3.5} },
+  { id:'KH22',     name:'Kh-22 / Kh-32',         cat:'WEAPONS', type:'MUNITION_ANTISHIP',      civ:'Anti-Ship Missile',        country:'RU', conf:'ESTIMATED', src:'IISS Military Balance / CSIS Missile Threat / GlobalSecurity.org', asym:'NEUTRAL', fallback:null, thresholds:{wind:40,rain:3.0} },
+  { id:'KALIBR',   name:'Kalibr 3M-14',          cat:'WEAPONS', type:'MUNITION_CRUISE_NAVAL',  civ:'Cruise Missile (Naval)',  country:'RU', conf:'OBSERVED',  src:'Naval Technology (Buyan-M SS-4 limit) / CSIS Missile Threat / Defense Express Mar 2023 — no DSMAC confirmed', asym:'FAVORS_ATTACKER', fallback:'TERCOM only — flat terrain degrades accuracy', thresholds:{wind:20,rain:0.50,ceil:500,vis:0.5,gpsDop:4.0} },
+  { id:'ISKANDER', name:'Iskander-M (9M723)',    cat:'WEAPONS', type:'MUNITION_BALLISTIC_SR',  civ:'Short-Range Ballistic Msl',country:'RU', conf:'ESTIMATED', src:'RUSI Aug 2022 (Cranny-Evans/Kaushal) / CSIS Missile Threat / Missilery.info / USNI Oct 2022', asym:'FAVORS_ATTACKER', fallback:'INS+GLONASS — CEP degrades 5m→50m when EO blinded', thresholds:{wind:35,rain:0.50,ceil:1500,vis:1,gpsDop:4.0} },
+  { id:'KH101',    name:'Kh-101 / Kh-102',       cat:'WEAPONS', type:'MUNITION_CRUISE_AIR',    civ:'Stealth Air-Launch Cruise',country:'RU', conf:'OBSERVED',  src:'CSIS Missile Threat / Defense Express Mar 2023 — DSMAC fails at night/snow / Ukrainian trophy analysis', asym:'FAVORS_ATTACKER', fallback:'TERCOM+GLONASS — DSMAC blind at night and in snow', thresholds:{wind:30,rain:0.50,ceil:500,vis:1,gpsDop:4.0} },
+  { id:'FAB500',   name:'FAB-500 M-62 + UMPK',   cat:'WEAPONS', type:'MUNITION_GLIDE',         civ:'GPS Glide Bomb',          country:'RU', conf:'OBSERVED',  src:'JAPCC Nov 2025 (NATO assessment) / Defense Express Dec 2024 / Fighterbomber Telegram Feb 2025 / CAR Nov 2023', asym:'FAVORS_ATTACKER', fallback:'INS only — CEP hundreds of meters under jamming', thresholds:{wind:25,rain:0.50,ceil:3000,vis:3,gpsDop:6.0} },
+  
+  // ── IRAN ──────────────────────────────────────────────────────────────────
+  { id:'IR_F14',   name:'F-14A Tomcat (Iran)',   cat:'STRIKE',  type:'PLATFORM_FIGHTER',       civ:'Interceptor Fighter',      country:'IR', conf:'ESTIMATED', src:'IISS Military Balance / Jane\'s — sanctions-degraded avionics; VFR-limited ops estimated', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:1,ceil:500} },
+  { id:'IR_SU24',  name:'Su-24MK Fencer (Iran)', cat:'STRIKE',  type:'PLATFORM_FIGHTER_BOMBER',civ:'Strike Aircraft',          country:'IR', conf:'ESTIMATED', src:'IISS Military Balance / Jane\'s / analogous RU Su-24 baseline', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:1,ceil:300} },
+  { id:'IR_F4',    name:'F-4D/E Phantom II (Iran)',cat:'STRIKE', type:'PLATFORM_FIGHTER_BOMBER',civ:'Multirole Fighter',        country:'IR', conf:'ESTIMATED', src:'IISS Military Balance / Jane\'s — aging airframe, degraded avionics', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:2,ceil:500} },
+  { id:'SHD136',   name:'Shahed-136',            cat:'UAV',     type:'PLATFORM_UAV_LOITER',    civ:'Loitering Munition',       country:'IR', conf:'OBSERVED',  src:'Ukraine AF reporting / ISW deployment data / RUSI Technical Profile / April 2024 Israel strike obs.', asym:'FAVORS_ATTACKER', fallback:'GPS/INS — low vis benefits attacker', thresholds:{wind:30,rain:0.30,ceil:200,vis:0.5,gpsDop:4.0,illum:25} },
+  { id:'SHD131',   name:'Shahed-131',            cat:'UAV',     type:'PLATFORM_UAV_LOITER',    civ:'Small Loitering Munition',country:'IR', conf:'ESTIMATED', src:'RUSI Technical Profile / OSMP Forensics / Extrapolation from Shahed-136', asym:'FAVORS_ATTACKER', fallback:'GPS/INS — more wind-sensitive than -136', thresholds:{wind:25,rain:0.30,ceil:200,vis:0.5,gpsDop:4.0,illum:25} },
+  { id:'SHD129',   name:'Shahed-129',            cat:'UAV',     type:'PLATFORM_UAV_MALE',      civ:'MALE Strike/Recon Drone', country:'IR', conf:'ESTIMATED', src:'IAIO Exhibition Data / MQ-1 Predator baseline (same Rotax 914 engine) / CriticalThreats.org', asym:'NEUTRAL', fallback:'EO degrades — ISR limited', thresholds:{wind:25,rain:0.10,ceil:2000,vis:3,gpsDop:4.0,illum:25} },
+  { id:'SHD149',   name:'Shahed-149 Gaza',       cat:'UAV',     type:'PLATFORM_UAV_STRIKE',    civ:'Heavy Strike Drone',       country:'IR', conf:'ESTIMATED', src:'OSINT Technical Documentation / analogous MALE platform inference', asym:'NEUTRAL', fallback:'EO degrades — strike limited', thresholds:{wind:20,rain:0.15,ceil:3000,gpsDop:3.5} },
+  { id:'MOHJ6',    name:'Mohajer-6',             cat:'UAV',     type:'PLATFORM_UAV_ISR',       civ:'Armed Recon Drone',        country:'IR', conf:'ESTIMATED', src:'OSINT Technical Documentation / Iran Aviation Industries Organization', asym:'NEUTRAL', fallback:null, thresholds:{wind:15,rain:0.10,ceil:1500} },
+  { id:'ARASH2',   name:'Arash-2',               cat:'UAV',     type:'PLATFORM_UAV_LOITER',    civ:'Suicide Drone',            country:'IR', conf:'ESTIMATED', src:'OSINT Technical Documentation / analogous small loitering munition inference', asym:'FAVORS_ATTACKER', fallback:'GPS/INS — small airframe most wind-sensitive', thresholds:{wind:12,rain:0.05,ceil:800,illum:25} },
+  { id:'FATAH1',   name:'Fattah-1 Hypersonic',   cat:'WEAPONS', type:'MUNITION_HYPERSONIC',    civ:'Hypersonic Ballistic Msl',country:'IR', conf:'ESTIMATED', src:'OSINT Technical Documentation / CSIS Missile Threat — limited public data', asym:'FAVORS_ATTACKER', fallback:'INS — still hypersonic', thresholds:{gpsDop:3.5} },
+  { id:'SHAHAB3',  name:'Shahab-3 / Ghadr',      cat:'WEAPONS', type:'MUNITION_BALLISTIC_MR',  civ:'Medium-Range Ballistic',  country:'IR', conf:'ESTIMATED', src:'CSIS Missile Threat / IISS Military Balance', asym:'FAVORS_ATTACKER', fallback:'INS only — unguided CEP ~1km', thresholds:{gpsDop:3.0} },
+  { id:'EMAD',     name:'Emad / Qadr-F',         cat:'WEAPONS', type:'MUNITION_BALLISTIC_PGM', civ:'Precision Ballistic Msl', country:'IR', conf:'ESTIMATED', src:'CSIS Missile Threat / IISS Military Balance / UNGA reports', asym:'FAVORS_ATTACKER', fallback:'INS only — CEP degrades significantly', thresholds:{gpsDop:2.5} },
+  { id:'PAVEH',    name:'Paveh Cruise Missile',  cat:'WEAPONS', type:'MUNITION_CRUISE_GPS',    civ:'Long-Range Cruise Msl',   country:'IR', conf:'ESTIMATED', src:'OSINT Technical Documentation / limited public data — April 2024 Israel strike obs.', asym:'FAVORS_ATTACKER', fallback:'INS only — range-limited', thresholds:{rain:2.0,gpsDop:2.5} },
+  { id:'ZOLFGHR',  name:'Zolfaghar / Dezful',    cat:'WEAPONS', type:'MUNITION_BALLISTIC_SR',  civ:'Short-Range Ballistic',   country:'IR', conf:'ESTIMATED', src:'CSIS Missile Threat / IISS Military Balance', asym:'FAVORS_ATTACKER', fallback:'INS only', thresholds:{gpsDop:2.5} },
+  
+  // ── ISRAEL ────────────────────────────────────────────────────────────────
+  { id:'IL_F35I',  name:'F-35I Adir',            cat:'STRIKE',  type:'PLATFORM_STEALTH',       civ:'Stealth Multirole',       country:'IL', conf:'ESTIMATED', src:'Lockheed Martin export specs / Jane\'s / IAF public documentation — mission-specific limits classified', asym:'NEUTRAL', fallback:null, thresholds:{rain:0.50,illum:40,wind:25} },
+  { id:'IL_F15I',  name:'F-15I Ra\'am',          cat:'STRIKE',  type:'PLATFORM_FIGHTER_BOMBER',civ:'Long-Range Strike Fighter',country:'IL', conf:'ESTIMATED', src:'Boeing export specs / Jane\'s / IAF public documentation', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:1,ceil:200} },
+  { id:'IL_F16I',  name:'F-16I Sufa',            cat:'STRIKE',  type:'PLATFORM_FIGHTER',       civ:'Multirole Fighter',       country:'IL', conf:'ESTIMATED', src:'Lockheed Martin export specs / Jane\'s / IAF public documentation', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:1,ceil:200} },
+  { id:'HERON1',   name:'IAI Heron 1 (Machatz)', cat:'UAV',     type:'PLATFORM_UAV_ISR',       civ:'Strategic Recon Drone',   country:'IL', conf:'OBSERVED',  src:'IAI published specs / Jane\'s / extensive public operational history', asym:'NEUTRAL', fallback:null, thresholds:{wind:25,rain:0.20,ceil:3000} },
+  { id:'HERMES9',  name:'Elbit Hermes 900',      cat:'UAV',     type:'PLATFORM_UAV_STRIKE',    civ:'Armed MALE Drone',        country:'IL', conf:'OBSERVED',  src:'Elbit Systems published specs / Jane\'s / Gaza operational documentation', asym:'NEUTRAL', fallback:'EO degrades — ISR limited', thresholds:{wind:20,rain:0.15,ceil:2000} },
+  { id:'HAROP',    name:'IAI Harop',             cat:'UAV',     type:'PLATFORM_UAV_LOITER',    civ:'Anti-Radiation Loitering',country:'IL', conf:'OBSERVED',  src:'IAI published export specs / Jane\'s / Azerbaijan combat documentation 2020', asym:'NEUTRAL', fallback:'ARH seeker — homes on radar emissions regardless of vis', thresholds:{wind:15,rain:0.10,ceil:1000} },
+  { id:'DELILAH',  name:'Delilah Cruise Missile',cat:'WEAPONS', type:'MUNITION_CRUISE_GPS',    civ:'Loitering Cruise Msl',    country:'IL', conf:'ESTIMATED', src:'IAI published export specs / Jane\'s — precision limits not public', asym:'FAVORS_ATTACKER', fallback:'INS only — loiter function reduced', thresholds:{rain:1.5,gpsDop:2.0} },
+  { id:'SPICE2K',  name:'SPICE-2000',            cat:'WEAPONS', type:'MUNITION_GPS_EO',        civ:'Precision Glide Bomb',    country:'IL', conf:'OBSERVED',  src:'Elbit Systems published specs / Jane\'s / Gaza IDF operational usage', asym:'NEUTRAL', fallback:'GPS only — EO seeker blind in cloud/rain', thresholds:{ceil:2000,vis:3,rain:0.10,gpsDop:2.0} },
+  { id:'RAMPAGE',  name:'Rampage Supersonic',    cat:'WEAPONS', type:'MUNITION_SUPERSONIC',    civ:'Air-Launched Strike Msl', country:'IL', conf:'ESTIMATED', src:'Israel Aerospace Industries published specs / Jane\'s', asym:'FAVORS_ATTACKER', fallback:'INS only', thresholds:{gpsDop:2.5,rain:2.0} },
+  { id:'JERICHO3', name:'Jericho III',           cat:'WEAPONS', type:'MUNITION_BALLISTIC_IR',  civ:'ICBM (Strategic)',        country:'IL', conf:'ESTIMATED', src:'IISS Military Balance / Jane\'s — strategic deterrent; most specs classified', asym:'FAVORS_ATTACKER', fallback:'INS only — still intercontinental range', thresholds:{gpsDop:4.0} },
+  
+  // ── UKRAINE ───────────────────────────────────────────────────────────────
+  { id:'UA_F16',   name:'F-16A/B Falcon (UA)',   cat:'STRIKE',  type:'PLATFORM_FIGHTER',       civ:'Multirole Fighter',       country:'UA', conf:'OBSERVED',  src:'USAF baseline specs / Ukrainian AF public reporting / ISW — limited combat data', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:1,ceil:500} },
+  { id:'UA_SU27',  name:'Su-27 Flanker (UA)',    cat:'STRIKE',  type:'PLATFORM_FIGHTER',       civ:'Air Superiority Fighter', country:'UA', conf:'ESTIMATED', src:'IISS Military Balance / Jane\'s / Ukrainian AF public reporting', asym:'NEUTRAL', fallback:null, thresholds:{wind:30,vis:1,ceil:300} },
+  { id:'UA_MIG29', name:'MiG-29 Fulcrum (UA)',   cat:'STRIKE',  type:'PLATFORM_FIGHTER',       civ:'Multirole Fighter',       country:'UA', conf:'ESTIMATED', src:'IISS Military Balance / Jane\'s / Ukrainian AF public reporting', asym:'NEUTRAL', fallback:null, thresholds:{wind:25,vis:1,ceil:300} },
+  { id:'UA_SU25',  name:'Su-25 Frogfoot (UA)',   cat:'STRIKE',  type:'PLATFORM_CAS',           civ:'Close Air Support',       country:'UA', conf:'OBSERVED',  src:'IISS Military Balance / ISW / Ukrainian combat documentation / Jane\'s', asym:'NEUTRAL', fallback:null, thresholds:{ceil:1500,vis:2,wind:25} },
+  { id:'UA_TB2',   name:'Bayraktar TB2',         cat:'UAV',     type:'PLATFORM_UAV_STRIKE',    civ:'Armed MALE Drone',        country:'UA', conf:'OBSERVED',  src:'Baykar Defense published specs / Jane\'s / Ukraine 2022 combat obs. — limited now due to losses', asym:'NEUTRAL', fallback:'EO degrades — strike limited', thresholds:{wind:15,rain:0.10,ceil:2000,vis:3} },
+  { id:'UA_FPV',   name:'FPV Strike Drone (Generic)',country:'UA', cat:'UAV',   conf:'OBSERVED',  asym:'NEUTRAL',        thresholds:{wind:10,rain:0.05,ceil:500,vis:1},           src:'Ukrainian military public reporting / ISW / Kyiv Independent — FPV grounded by wind/rain' },
+  { id:'UA_SHARK', name:'Shark ISR UAV',         cat:'UAV',     type:'PLATFORM_UAV_ISR',       civ:'Ukrainian Recon Drone',   country:'UA', conf:'ESTIMATED', src:'Ukrspecsystems published specs / Ukrainian public documentation', asym:'NEUTRAL', fallback:null, thresholds:{wind:15,rain:0.10,ceil:1500} },
+  { id:'UA_STORM', name:'Storm Shadow / SCALP-EG', country:'UA', cat:'WEAPONS', conf:'VERIFIED',  asym:'FAVORS_ATTACKER',thresholds:{rain:1.0,gpsDop:2.5,ceil:500},               src:'MBDA published specs / Jane\'s / UK-FR export documentation / Ukraine operational use' },
+  { id:'UA_ATCMS', name:'MGM-140 ATACMS',          country:'UA', cat:'WEAPONS', conf:'VERIFIED',  asym:'FAVORS_ATTACKER',thresholds:{gpsDop:2.5},                                 src:'Lockheed Martin published specs / US Army documentation / Ukraine operational data' },
+  { id:'UA_HIMRS', name:'HIMARS M31 GMLRS',        country:'UA', cat:'WEAPONS', conf:'VERIFIED',  asym:'FAVORS_ATTACKER',thresholds:{gpsDop:2.0},                                 src:'Lockheed Martin published specs / US Army documentation / Ukraine combat data' },
+  { id:'UA_NEPT',  name:'Neptune Anti-Ship Missile',country:'UA', cat:'WEAPONS', conf:'OBSERVED', asym:'NEUTRAL',        thresholds:{rain:1.5,gpsDop:2.5},                        src:'Luch Design Bureau specs / Ukrainian MoD / Moskva sinking documentation' },
+  
+  // ── CHINA ─────────────────────────────────────────────────────────────────
+  { id:'CN_J20',   name:'J-20 Mighty Dragon',      country:'CN', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{rain:0.30,wind:28,vis:1,ceil:300},           src:'IISS Military Balance / Jane\'s / PLAAF public releases — stealth limits classified' },
+  { id:'CN_J16',   name:'J-16 Strike Fighter',     country:'CN', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:30,vis:1,ceil:200},                     src:'IISS Military Balance / Jane\'s / PLAAF public releases' },
+  { id:'CN_J10C',  name:'J-10C Vigorous Dragon',   country:'CN', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:28,vis:1,ceil:300},                     src:'IISS Military Balance / Jane\'s / Chengdu Aircraft Corp public specs' },
+  { id:'CN_H6K',   name:'H-6K Badger',             country:'CN', cat:'STRIKE',  conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:35,vis:1,ceil:984},                     src:'IISS Military Balance / Jane\'s / PLAAF public releases' },
+  { id:'CN_TB001', name:'TB-001 Twin-Tail Scorpion',country:'CN', cat:'UAV',    conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:20,rain:0.15,ceil:2000,vis:3},          src:'IISS Military Balance / Jane\'s / AVIC public specs / limited export data' },
+  { id:'CN_WZ7',   name:'WZ-7 Soaring Dragon',     country:'CN', cat:'UAV',     conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:25,rain:0.30},                          src:'IISS Military Balance / Jane\'s / PLAAF public releases' },
+  { id:'CN_CH4',   name:'CASC CH-4 Rainbow',       country:'CN', cat:'UAV',     conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{wind:18,rain:0.10,ceil:2000,vis:3,gpsDop:3.5}, src:'CASC published export specs / Jane\'s / Iraq-Saudi Arabia export usage data' },
+  { id:'CN_DF21D', name:'DF-21D Anti-Ship Ballistic',country:'CN', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{gpsDop:3.0},                               src:'CSIS Missile Threat / IISS Military Balance / Office of Naval Intelligence' },
+  { id:'CN_DF26',  name:'DF-26 Intermediate Ballistic',country:'CN', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{gpsDop:3.0},                             src:'CSIS Missile Threat / IISS Military Balance / DoD China Military Power Report' },
+  { id:'CN_CJ10',  name:'CJ-10 Land Attack Cruise',country:'CN', cat:'WEAPONS', conf:'ESTIMATED', asym:'FAVORS_ATTACKER',thresholds:{rain:2.0,gpsDop:2.5},                        src:'CSIS Missile Threat / IISS Military Balance — analogous Tomahawk/Kh-55 baseline' },
+  { id:'CN_YJ12',  name:'YJ-12 Anti-Ship Cruise',  country:'CN', cat:'WEAPONS', conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{rain:2.0,gpsDop:2.5,wind:35},                src:'CSIS Missile Threat / IISS Military Balance / Jane\'s' },
+];
+
+export default function IWEDADashboard() {
+  const [activeCategory, setActiveCategory] = useState('ALL');
+  const [activeCountry, setActiveCountry] = useState('ALL');
+  const [plainEnglish, setPlainEnglish] = useState(false);
+  const [isFetching, setIsFetching] = useState(false);
+  const [apiStatus, setApiStatus] = useState('CONNECTED');
+
+  const [jammed, setJammed] = useState(false);
+  const [timeMode, setTimeMode] = useState('UTC'); 
+
+  // Time and Forecast State
+  const [selDay, setSelDay] = useState(0);
+  const [selWindow, setSelWindow] = useState(1); // Default to Morning
+  const [selHour, setSelHour] = useState(0);
+  const [allData, setAllData] = useState([]); // Array of 6 days, each day is 24 hours
+  const [dayMeta, setDayMeta] = useState([]); // Labels like "TODAY", "TOMORROW", "WED"
+
+  // Geolocation Search State
+  const [targetLocation, setTargetLocation] = useState({
+    name: 'KYIV', country: 'UA', lat: 50.45, lon: 30.52, timezone: 'Europe/Kyiv'
+  });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  const [tooltip, setTooltip] = useState(null);
+
+  // Geocoding Search Effect (Debounced)
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (searchQuery.length >= 3) {
+        setIsSearching(true);
+        try {
+          const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(searchQuery)}&count=5&language=en&format=json`);
+          const data = await res.json();
+          setSearchResults(data.results || []);
+          setShowDropdown(true);
+        } catch (e) {
+          console.error("Geocoding error:", e);
+          setSearchResults([]);
+        }
+        setIsSearching(false);
+      } else {
+        setSearchResults([]);
+        setShowDropdown(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
+
+  const handleSelectLocation = (loc) => {
+    setTargetLocation({
+      name: loc.name, country: loc.country_code || 'XX', lat: loc.latitude, lon: loc.longitude, timezone: loc.timezone || 'UTC'
+    });
+    setSearchQuery('');
+    setShowDropdown(false);
+  };
+
+  const fetchWeatherData = useCallback(async () => {
+    setIsFetching(true); 
+    setApiStatus('DOWNLOADING');
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${targetLocation.lat}&longitude=${targetLocation.lon}`
+        + `&hourly=temperature_2m,precipitation,snowfall,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high`
+        + `,visibility,wind_speed_10m,wind_gusts_10m,precipitation_probability,surface_pressure`
+        + `&wind_speed_unit=kn&timezone=UTC&forecast_days=7`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const raw = await res.json();
+      if (!raw.hourly?.time) throw new Error('Malformed API response');
+
+      const now = new Date();
+      const curHourISO = now.toISOString().slice(0,13) + ':00';
+      let startIdx = raw.hourly.time.findIndex(t => t >= curHourISO);
+      if (startIdx < 0) startIdx = 0;
+
+      const locFmt = new Intl.DateTimeFormat('en-US', { timeZone:targetLocation.timezone, hour:'2-digit', minute:'2-digit', hour12:false, hourCycle:'h23' });
+      const civFmt = new Intl.DateTimeFormat('en-US', { timeZone:targetLocation.timezone, hour:'numeric', minute:'2-digit', hour12:true });
+      const dateFmt = new Intl.DateTimeFormat('en-US', { timeZone:targetLocation.timezone, weekday:'short', month:'short', day:'numeric' });
+
+      // Build 6 days × 24 hours
+      const days = []; const metas = [];
+
+      for (let d = 0; d < 6; d++) {
+        const hours = [];
+        for (let h = 0; h < 24; h++) {
+          const idx = startIdx + d * 24 + h;
+          if (idx >= raw.hourly.time.length) break;
+          const dt = new Date(raw.hourly.time[idx] + 'Z');
+
+          const rainMm    = raw.hourly.precipitation[idx] || 0;
+          const rainIn    = rainMm * 0.0393701;
+          const snowCm    = raw.hourly.snowfall?.[idx] || 0;
+          const tempC     = Math.round(raw.hourly.temperature_2m[idx] ?? 15);
+          const windKt    = Math.round(raw.hourly.wind_speed_10m[idx] || 0);
+          const gustKt    = Math.round(raw.hourly.wind_gusts_10m?.[idx] || windKt);
+          const visM      = raw.hourly.visibility[idx] ?? 16093;
+          const visSM     = visM >= 16093 ? 10 : parseFloat((visM / 1609.34).toFixed(1));
+          const visDisp   = visM >= 16093 ? '10+' : visSM.toFixed(1);
+          const cLow      = raw.hourly.cloud_cover_low?.[idx] || 0;
+          const cMid      = raw.hourly.cloud_cover_mid?.[idx] || 0;
+          const cHigh     = raw.hourly.cloud_cover_high?.[idx] || 0;
+          const precipProb= raw.hourly.precipitation_probability?.[idx] || 0;
+          const pressure  = raw.hourly.surface_pressure?.[idx] || 1013;
+          const prevPres  = idx > 0 ? (raw.hourly.surface_pressure?.[idx-1] || pressure) : pressure;
+          const pTend     = parseFloat((pressure - prevPres).toFixed(1));
+
+          const ceil      = calcCeiling(cLow, cMid, cHigh, rainIn);
+          const gpsDop    = calcGpsDop(rainIn, cLow, snowCm, jammed);
+          const illum     = getMoonIllumination(dt);
+
+          let precipType = 'NONE';
+          if (rainIn > 0) {
+            if (tempC < 2 && snowCm > 0) precipType = 'SNOW';
+            else if (tempC < 2) precipType = 'FZRA';
+            else if (snowCm > 0 && tempC < 5) precipType = 'MIXED';
+            else precipType = 'RAIN';
+          }
+
+          let pTendText = 'STEADY', pTendColor = 'text-gray-600';
+          if (pTend <= -2) { pTendText = 'FALLING RAPID'; pTendColor = 'text-red-600 font-bold'; }
+          else if (pTend < -1) { pTendText = 'FALLING'; pTendColor = 'text-yellow-600 font-bold'; }
+          else if (pTend > 0.5) { pTendText = 'RISING'; pTendColor = 'text-green-600 font-bold'; }
+
+          // Confidence — decays with day index AND within-day uncertainty
+          let cf = 97 - d * 8 - h * 0.4;
+          if (precipProb > 50) cf -= 5;
+          if (gustKt > 25) cf -= 3;
+          if (Math.abs(cLow - (raw.hourly.cloud_cover_low?.[Math.max(0,idx-1)] || cLow)) > 30) cf -= 4;
+          cf = Math.max(35, Math.round(cf));
+
+          // METAR-style string
+          const sc = `X${(targetLocation.country+'XX').slice(0,3).toUpperCase()}`;
+          const hr2 = dt.getUTCHours().toString().padStart(2,'0');
+          const da2 = dt.getUTCDate().toString().padStart(2,'0');
+          const vStr = visM >= 9999 ? '9999' : Math.round(visM).toString().padStart(4,'0');
+          const cStr = ceil < 3000 ? `OVC${Math.round(ceil/100).toString().padStart(3,'0')}` : ceil < 8000 ? `BKN${Math.round(ceil/100).toString().padStart(3,'0')}` : `SCT${Math.round(ceil/100).toString().padStart(3,'0')}`;
+          const pCode = precipType === 'SNOW' ? 'SN ' : precipType === 'FZRA' ? 'FZRA ' : precipType === 'RAIN' ? 'RA ' : 'NSW ';
+          const wStr = gustKt > windKt + 3 ? `27${windKt.toString().padStart(2,'0')}G${gustKt.toString().padStart(2,'0')}KT` : `270${windKt.toString().padStart(2,'0')}KT`;
+          const metar = `${sc} ${da2}${hr2}00Z ${wStr} ${vStr} ${pCode}${cStr} ${tempC<0?'M'+Math.abs(tempC).toString().padStart(2,'0'):tempC.toString().padStart(2,'0')}/M02 Q${Math.round(pressure)} RMK MODEL`;
+
+          let locTime = '--:--L', civTime = '--:--';
+          try {
+            const lp = locFmt.formatToParts(dt);
+            const lh = lp.find(p=>p.type==='hour')?.value.padStart(2,'0')||'00';
+            const lm = lp.find(p=>p.type==='minute')?.value.padStart(2,'0')||'00';
+            locTime = `${lh}${lm}L`;
+            civTime = civFmt.format(dt);
+          } catch {}
+
+          hours.push({ 
+            time:`${hr2}00Z`, locTime, civTime, utcHour: dt.getUTCHours(), ceil, visSM, visDisp, 
+            rain:parseFloat(rainIn.toFixed(3)), precipType, wind:windKt, gust:gustKt, illum, gpsDop, tempC, cf, pTend, pTendText, pTendColor, metar 
+          });
+        }
+        days.push(hours);
+
+        const refDt = new Date(raw.hourly.time[startIdx + d * 24] + 'Z');
+        let label;
+        try { label = d === 0 ? 'TODAY' : d === 1 ? 'TOMORROW' : dateFmt.format(refDt).toUpperCase(); }
+        catch { label = `D+${d}`; }
+        metas.push(label);
+      }
+
+      setAllData(days);
+      setDayMeta(metas);
+      setSelDay(0); setSelWindow(1); setSelHour(0);
+      setApiStatus('LIVE');
+    } catch (err) {
+      console.warn('Fetch failed:', err.message);
+      setApiStatus('API ERROR');
+    }
+    setIsFetching(false);
+  }, [targetLocation, jammed]);
+
+  useEffect(() => { fetchWeatherData(); }, [targetLocation, fetchWeatherData]);
+
+  // Derived Tactical Window Views
+  const dayHours    = allData[selDay] || [];
+  const winDef      = TACTICAL_WINDOWS[selWindow];
+  const windowHours = winDef ? winDef.hours.map(h => dayHours.find(fc => fc.utcHour === h)).filter(Boolean) : [];
+  const currentFc   = windowHours[selHour] || null;
+  const uncertainty = getForecastUncertainty(selDay);
+  const reliability = DAY_RELIABILITY[selDay] || DAY_RELIABILITY[0];
+
+  const filteredAssets = ASSETS.filter(a =>
+    (activeCountry === 'ALL' || a.country === activeCountry) &&
+    (activeCategory === 'ALL' || a.cat === activeCategory)
+  );
+
+  const getCountryBorderColor = (countryCode) => {
+    switch(countryCode) {
+      case 'US': return 'border-l-blue-600';
+      case 'RU': return 'border-l-red-600';
+      case 'IR': return 'border-l-green-600';
+      case 'IL': return 'border-l-gray-300';
+      case 'UA': return 'border-l-yellow-600';
+      case 'CN': return 'border-l-purple-600';
+      case 'KP': return 'border-l-red-900';
+      case 'SY': return 'border-l-yellow-700';
+      case 'YE': return 'border-l-emerald-700';
+      default: return 'border-l-gray-400';
+    }
+  };
+
+  const getConfidenceBadgeColor = (confidenceLevel) => {
+    switch(confidenceLevel) {
+      case 'VERIFIED': return 'bg-blue-800';
+      case 'OBSERVED': return 'bg-yellow-600';
+      case 'ESTIMATED': return 'bg-gray-600';
+      default: return 'bg-gray-600';
+    }
+  };
+
+  const evalCell = useCallback((asset, fc) => {
+    if (!fc) return { status:'GREY', reason:'NO DATA', isFallback:false, lowCf:false };
+    const isSnow = fc.precipType === 'SNOW' || fc.precipType === 'FZRA';
+    const activeWind = Math.max(fc.wind, fc.gust);
+    const windLim = (asset.cat === 'ROTARY' && isSnow) ? (asset.thresholds.wind||99) - 5 : (asset.thresholds.wind||99);
+    const effRain = (asset.type === 'MUNITION_LGB' && isSnow) ? fc.rain * 2 : fc.rain;
+    const dop = fc.gpsDop;
+    const lowCf = fc.cf < 65;
+
+    let status = 'GREEN', reason = '', isFallback = false;
+    let worstMarginPct = 100;
+
+    const checkViolation = (val, limit, label) => {
+      if (limit === undefined || limit === null) return;
+      const violated = val >= limit;
+      const marginPct = Math.abs((val - limit) / limit * 100);
+      if (violated) {
+        if (marginPct < worstMarginPct) worstMarginPct = marginPct;
+        const adjStatus = uncertaintyAdjustedStatus(true, marginPct, uncertainty);
+        if (adjStatus === 'RED' && status !== 'RED') { status = 'RED'; reason = label; }
+        else if (adjStatus === 'AMBER' && status === 'GREEN') { status = 'AMBER'; reason = label + (selDay >= 2 ? ' [~FCST]' : ''); }
+      }
+    };
+
+    const checkViolationLow = (val, limit, label) => {
+      if (limit === undefined || limit === null) return;
+      const violated = val < limit;
+      const marginPct = Math.abs((val - limit) / limit * 100);
+      if (violated) {
+        if (marginPct < worstMarginPct) worstMarginPct = marginPct;
+        const adjStatus = uncertaintyAdjustedStatus(true, marginPct, uncertainty);
+        if (adjStatus === 'RED' && status !== 'RED') { status = 'RED'; reason = label; }
+        else if (adjStatus === 'AMBER' && status === 'GREEN') { status = 'AMBER'; reason = label + (selDay >= 2 ? ' [~FCST]' : ''); }
+      }
+    };
+
+    checkViolation(dop,       asset.thresholds.gpsDop, plainEnglish ? `GPS Weak (${dop.toFixed(1)})` : `DOP ${dop.toFixed(1)}`);
+    checkViolationLow(fc.visSM, asset.thresholds.vis,  plainEnglish ? `Blind: ${fc.visDisp}SM` : `VIS ${fc.visDisp}SM`);
+    checkViolationLow(fc.ceil,  asset.thresholds.ceil, plainEnglish ? `Clouds (${fc.ceil}ft)` : `CEIL ${fc.ceil}ft`);
+    checkViolation(effRain,   asset.thresholds.rain,   plainEnglish ? `Precip ${effRain.toFixed(2)}"` : `PRECIP ${effRain.toFixed(2)}"`);
+    checkViolation(activeWind, windLim,                plainEnglish ? `Winds ${activeWind}kt` : `WND ${activeWind}KT`);
+
+    if (asset.id === 'B2' && isSnow && fc.rain > 0) {
+      status = 'RED'; reason = plainEnglish ? 'LO degraded (Snow)' : 'SNOW ON LO COAT';
+    }
+
+    if (asset.thresholds.illum !== undefined) {
+      if (fc.illum >= asset.thresholds.illum + 10 && status !== 'RED') { status='RED'; reason = plainEnglish ? `Moon ${fc.illum}%` : `ILLUM ${fc.illum}%`; }
+      else if (fc.illum >= asset.thresholds.illum && status === 'GREEN') { status='AMBER'; reason = plainEnglish ? `Moon ${fc.illum}%` : `ILLUM ${fc.illum}%`; }
+    }
+
+    if (status === 'RED' && asset.fallback) {
+      const opticalOnlyFail = reason.includes('VIS') || reason.includes('CEIL') || reason.includes('PRECIP') || reason.includes('Precip');
+      const isGuidedMissile = asset.type?.includes('MUNITION_CRUISE') || asset.type?.includes('MUNITION_BALLISTIC') || asset.type?.includes('MUNITION_GLIDE') || asset.type?.includes('MUNITION_GPS');
+      if (opticalOnlyFail && isGuidedMissile) {
+        status = 'AMBER'; isFallback = true;
+        reason = (plainEnglish ? 'FALLBACK: ' : 'FALLBACK: ') + asset.fallback.split('—')[0].trim().substring(0,22);
+      }
+    }
+
+    if ((status === 'RED' || status === 'AMBER') && asset.asym === 'FAVORS_ATTACKER') {
+      reason += ' ★';
+    }
+
+    if (status !== 'GREEN' && selDay >= 4) reason += ' [LOW~CF]';
+    else if (status !== 'GREEN' && selDay >= 2) reason += ' [~CF]';
+
+    if (status === 'GREEN') reason = plainEnglish ? 'Clear' : 'OPTIMAL';
+    if (lowCf && status !== 'GREY') reason += (status === 'GREEN' ? ' [~]' : '');
+
+    return { status, reason, isFallback, lowCf };
+  }, [plainEnglish, uncertainty, selDay]);
+
+  const cellBg = (result, selected) => {
+    const colors = { GREEN: selected?'#009900':'#00cc00', AMBER: selected?'#cc9900':'#ffcc00', RED: selected?'#990000':'#cc0000', GREY:'#888888' };
+    const darkColors = { GREEN:'#166534', AMBER:'#713f12', RED:'#7f1d1d', GREY:'#374151' };
+    if (result.isFallback) return { bg: selected?'#9a3412':'#c2410c', fg:'#fff' };
+    const bg = (result.lowCf ? darkColors : colors)[result.status] || '#888';
+    const fg = (result.status === 'GREEN' && !result.lowCf) || (result.status === 'AMBER' && !result.lowCf) ? '#000' : '#fff';
+    return { bg, fg };
+  };
+
+  // JOINT STRIKE PACKAGE OPTIMALITY ENGINE (KILL CHAIN ANALYSIS)
+  const optimality = useMemo(() => {
+    if (!dayHours || dayHours.length === 0) return null;
+    const nationAssets = ASSETS.filter(a => activeCountry === 'ALL' || a.country === activeCountry);
+    if (nationAssets.length === 0) return null;
+
+    // 1. Generate the 24-hour timeline 
+    const timeline24 = dayHours.map(fc => {
+        let isr = 0, strike = 0, weapons = 0, total = 0;
+        nationAssets.forEach(a => {
+            const res = evalCell(a, fc);
+            if (res.status === 'GREEN') {
+                total++;
+                if (a.cat === 'SUPPORT' || a.type?.includes('ISR')) isr++;
+                else if (a.cat === 'STRIKE' || a.cat === 'ROTARY' || (a.cat === 'UAV' && !a.type?.includes('ISR'))) strike++;
+                else if (a.cat === 'WEAPONS') weapons++;
+            }
+        });
+        const viable = isr > 0 && strike > 0 && weapons > 0;
+        return { 
+            fc, 
+            timeLabel: timeMode === 'UTC' ? fc.time : timeMode === 'LOCAL' ? fc.locTime : fc.civTime,
+            viable, 
+            status: viable ? 'GREEN' : (strike > 0 && weapons > 0) ? 'AMBER' : 'RED',
+            total
+        };
+    });
+
+    // Find longest contiguous GREEN window
+    let maxGreenStreak = 0;
+    let currentGreenStreak = 0;
+    let bestStartIdx = -1;
+    let currentStartIdx = -1;
+
+    timeline24.forEach((t, i) => {
+        if (t.status === 'GREEN') {
+            if (currentGreenStreak === 0) currentStartIdx = i;
+            currentGreenStreak++;
+            if (currentGreenStreak > maxGreenStreak) {
+                maxGreenStreak = currentGreenStreak;
+                bestStartIdx = currentStartIdx;
+            }
+        } else {
+            currentGreenStreak = 0;
+        }
+    });
+
+    // Establish "NOW" status based on the first hour of the day
+    let currentStatusText = "";
+    if (timeline24[0].status === 'GREEN') {
+        let remaining = 0;
+        for (let i = 0; i < timeline24.length; i++) {
+           if (timeline24[i].status === 'GREEN') remaining++;
+           else break;
+        }
+        currentStatusText = `NOW: OPEN (${remaining}H REMAINING)`;
+    } else {
+        let nextOpenIdx = timeline24.findIndex(t => t.status === 'GREEN');
+        if (nextOpenIdx > -1) currentStatusText = `NOW: CLOSED (NEXT WINDOW: ${timeline24[nextOpenIdx].timeLabel})`;
+        else currentStatusText = `NOW: CLOSED (NO WINDOW TODAY)`;
+    }
+
+    const windowText = maxGreenStreak > 0 
+        ? `${timeline24[bestStartIdx].timeLabel} - ${timeline24[bestStartIdx + maxGreenStreak - 1].timeLabel} (${maxGreenStreak}H TOTAL)` 
+        : `NONE IDENTIFIED`;
+
+    // Grab the best single hour for deep constraint analysis
+    let bestHourObj = timeline24.reduce((max, obj) => obj.total > max.total ? obj : max, timeline24[0]);
+    const bestHour = bestHourObj.fc;
+
+    // Assess the Nodes
+    const isrList = nationAssets.filter(a => a.type?.includes('ISR') || a.cat === 'SUPPORT');
+    const standoffList = nationAssets.filter(a => ['PLATFORM_UAV_LOITER','MUNITION_CRUISE_GPS','MUNITION_CRUISE_STEALTH','MUNITION_CRUISE_AIR','MUNITION_CRUISE_NAVAL','MUNITION_BALLISTIC','MUNITION_BALLISTIC_SR','MUNITION_BALLISTIC_MR','MUNITION_BALLISTIC_PGM','MUNITION_BALLISTIC_IR','MUNITION_HYPERSONIC','MUNITION_ASBM'].includes(a.type));
+    const precisionList = nationAssets.filter(a => ['MUNITION_LGB','MUNITION_GPS_EO','PLATFORM_CAS','PLATFORM_GLIDE_BOMB'].includes(a.type));
+
+    const isrRed = isrList.map(a => ({ asset: a, ...evalCell(a, bestHour) })).filter(e => e.status === 'RED');
+    const isrGreen = isrList.map(a => ({ asset: a, ...evalCell(a, bestHour) })).filter(e => e.status === 'GREEN' || e.status === 'AMBER');
+    const precisionRed = precisionList.map(a => ({ asset: a, ...evalCell(a, bestHour) })).filter(e => e.status === 'RED');
+    const standoffGreen = standoffList.map(a => ({ asset: a, ...evalCell(a, bestHour) })).filter(e => e.status === 'GREEN' || e.status === 'AMBER');
+
+    let isrBroken = isrRed.length > 0 && isrGreen.length === 0 && isrList.length > 0;
+    let precisionBroken = precisionRed.length > 0 && precisionRed.length >= precisionList.length / 2;
+    let standoffViable = standoffGreen.length > 0;
+
+    // --- Hardcore Military Analyst View Logic ---
+    const totalGreen = bestHourObj.total;
+    const viabilityPct = Math.round((totalGreen / nationAssets.length) * 100);
+    const confidencePct = bestHour.cf;
+    
+    let verdictMil = "WEATHER SUITABLE — FULL PACKAGE";
+    let verdictColor = "text-[#00ff00]";
+    let viabilityTier = viabilityPct >= 80 ? 'HIGH' : viabilityPct >= 50 ? 'MODERATE' : 'LOW';
+    let confTier = confidencePct >= 80 ? 'HIGH CONF' : confidencePct >= 60 ? 'MOD CONF' : 'LOW CONF';
+    
+    // Primary Limiter (The "Catch")
+    let primaryLimiter = "None Identified";
+    let limiterColor = "text-green-500";
+    let limiterContext = "All asset classes cleared for engagement.";
+
+    if (isrBroken) {
+        verdictMil = "DEGRADED — STANDOFF ONLY";
+        verdictColor = "text-yellow-500";
+        primaryLimiter = isrRed[0]?.reason || 'Weather Limit Exceeded';
+        limiterColor = "text-red-500";
+        limiterContext = `UAV/ISR ENVELOPE EXCEEDED. FAST-JETS & MISSILES UNAFFECTED.`;
+        if (!standoffViable) {
+            verdictMil = "NO-GO — ALL ASSETS GROUNDED";
+            verdictColor = "text-red-500";
+            limiterContext = `EXTREME CONDITIONS EXCEED ALL PLATFORM THRESHOLDS.`;
+        }
+    } else if (precisionBroken) {
+        verdictMil = "DEGRADED — OPTICAL SEEKERS BLIND";
+        verdictColor = "text-yellow-500";
+        primaryLimiter = precisionRed[0]?.reason || 'Weather Limit Exceeded';
+        limiterColor = "text-red-500";
+        limiterContext = `LASER/EO SEEKERS BLIND. GPS/INS WEAPONS UNAFFECTED.`;
+        if (!standoffViable) {
+            verdictMil = "NO-GO — ALL ASSETS GROUNDED";
+            verdictColor = "text-red-500";
+            limiterContext = `EXTREME CONDITIONS EXCEED ALL PLATFORM THRESHOLDS.`;
+        }
+    } else if (bestHour.visSM < 3 || bestHour.ceil < 3000 || bestHour.gust > 15) {
+        primaryLimiter = bestHour.visSM < 3 ? `Visibility ${bestHour.visDisplay} SM` : bestHour.ceil < 3000 ? `Ceiling ${bestHour.ceil} ft` : `Gusts ${bestHour.gust} kt`;
+        limiterColor = "text-yellow-500";
+        limiterContext = "MARGINAL CONDITIONS. DEGRADED ACQUISITION RANGE.";
+    }
+
+    // Window Trend
+    let windowTrend = "Stable Through +3h";
+    let trendColor = "text-green-500";
+    const bestHourIdx = dayHours.findIndex(fc => fc === bestHour);
+    if (bestHourIdx !== -1 && bestHourIdx + 3 < dayHours.length) {
+       const futureHour = dayHours[bestHourIdx + 3];
+       let futureTotal = 0;
+       nationAssets.forEach(a => { if(evalCell(a, futureHour).status === 'GREEN') futureTotal++; });
+       const futureViability = Math.round((futureTotal / nationAssets.length) * 100);
+       
+       if (futureViability < viabilityPct - 5) { 
+           windowTrend = `Deteriorating +3h (Viability dropping to ${futureViability}%)`; 
+           trendColor = "text-red-500";
+       } else if (futureViability > viabilityPct + 5) {
+           windowTrend = `Improving +3h (Viability rising to ${futureViability}%)`;
+           trendColor = "text-green-500";
+       }
+    }
+
+    // Asset Risk Profile
+    const getRisk = (assetsInCat, catName) => {
+        if (assetsInCat.length === 0) return { label: "N/A", color: "text-gray-500" };
+        let reds = 0, ambers = 0;
+        let mainReason = "";
+        assetsInCat.forEach(a => {
+            const res = evalCell(a, bestHour);
+            if (res.status === 'RED') { reds++; mainReason = res.reason; }
+            if (res.status === 'AMBER' && !mainReason) { ambers++; mainReason = res.reason; }
+        });
+
+        let context = "";
+        if (mainReason) {
+            if (mainReason.includes('CEIL') || mainReason.includes('Clouds') || mainReason.includes('Cloud')) context = " (Cloud Base)";
+            else if (mainReason.includes('WND') || mainReason.includes('Winds')) context = " (Gust Exposure)";
+            else if (mainReason.includes('VIS') || mainReason.includes('Blind')) context = " (Visibility)";
+            else if (mainReason.includes('PRECIP') || mainReason.includes('Precip')) context = " (Precipitation)";
+            else if (mainReason.includes('DOP') || mainReason.includes('GPS')) context = " (GNSS Interference)";
+            else if (mainReason.includes('ILLUM') || mainReason.includes('Moon')) context = " (Illumination)";
+            else if (mainReason.includes('SNOW')) context = " (Icing/Snow)";
+        }
+
+        if (reds > 0) return { label: `HIGH RISK${context}`, color: "text-red-500" };
+        if (ambers > 0) return { label: `MODERATE RISK${context}`, color: "text-yellow-500" };
+        return { label: catName === 'Munitions' ? "HIGH RELIABILITY" : catName === 'ISR' ? "MINIMAL IMPACT" : "LOW RISK", color: "text-green-500" };
+    };
+
+    const riskProfile = {
+        strike: getRisk(nationAssets.filter(a => a.cat === 'STRIKE'), 'Strike'),
+        uav: getRisk(nationAssets.filter(a => a.cat === 'UAV' && !a.type?.includes('ISR')), 'UAV'),
+        rotary: getRisk(nationAssets.filter(a => a.cat === 'ROTARY'), 'Rotary'),
+        isr: getRisk(isrList, 'ISR'),
+        weapons: getRisk(nationAssets.filter(a => a.cat === 'WEAPONS'), 'Munitions')
+    };
+
+    let volatility = "Low";
+    let volColor = "text-green-500";
+    if (selDay >= 4 || bestHour.cf < 60) { volatility = "High"; volColor = "text-red-500"; }
+    else if (selDay >= 2 || bestHour.cf < 80) { volatility = "Moderate"; volColor = "text-yellow-500"; }
+
+
+    // --- Civilian Translation View Logic ---
+    let verdictCiv = "Are clouds/winds likely to reduce targeting effectiveness? No. All aircraft and missiles can operate effectively today.";
+    if (isrBroken) {
+        if (standoffViable) verdictCiv = "Are clouds/winds likely to reduce targeting effectiveness? Yes. Spotter drones are grounded, heavily degrading precision bombing. Satellite-guided long-range missiles remain fully viable.";
+        else verdictCiv = "Are clouds/winds likely to reduce targeting effectiveness? Yes. Extreme conditions exceed limits for all major offensive aircraft and missile systems today.";
+    } else if (precisionBroken) {
+        if (standoffViable) verdictCiv = "Are clouds/winds likely to reduce targeting effectiveness? Yes. Cloud cover degrades laser and optical targeting for precision bombs. Satellite-guided weapons remain fully effective.";
+        else verdictCiv = "Are clouds/winds likely to reduce targeting effectiveness? Yes. Extreme conditions exceed limits for all major offensive aircraft and missile systems today.";
+    }
+
+    return { 
+      timeline24,
+      windowText,
+      currentStatusText,
+      mil: { viabilityPct, viabilityTier, confTier, volatility, volColor, primaryLimiter, limiterColor, limiterContext, windowTrend, trendColor, riskProfile, verdictMil, verdictColor },
+      civ: { verdictCiv, verdictColor }
+    };
+  }, [dayHours, activeCountry, evalCell, selDay, timeMode, plainEnglish]);
+
+  return (
+    <div className="min-h-screen bg-[#c0c0c0] text-black font-sans text-[11px] p-2 select-none flex flex-col items-center" onClick={() => tooltip && setTooltip(null)}>
+      <div className="w-full max-w-[1360px] flex flex-col gap-1.5">
+        
+        {/* TITLE BAR */}
+        <div className="bg-[#000080] text-white px-2 py-1 font-bold flex justify-between items-center text-[12px]">
+          <span>Integrated Weather Effects Decision Aid (IWEDA) V3.1 — UNCLASSIFIED // FOUO</span>
+          <div className="flex gap-1">
+            {['_','□','✕'].map(c => (
+              <button key={c} className="bg-[#c0c0c0] text-black px-1.5 border-2 border-t-white border-l-white border-b-gray-600 border-r-gray-600 font-bold leading-none cursor-pointer hover:bg-gray-300 active:border-t-gray-600 active:border-l-gray-600 active:border-b-white active:border-r-white">{c}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* MENU BAR */}
+        <div className="flex justify-between items-center border-b border-white pb-1 flex-wrap gap-1">
+          <div className="flex gap-3 items-center">
+            {['File','Edit','View','Filters','Tools','Help'].map(m => (
+              <span key={m} className="cursor-pointer px-1 hover:bg-[#000080] hover:text-white">{m}</span>
+            ))}
+            <a href="methodology.html" target="_blank" rel="noopener noreferrer" className="cursor-pointer px-2 py-0.5 ml-4 bg-[#000080] text-white border border-white font-bold hover:bg-blue-600 decoration-none no-underline">
+              Methodology / Threshold Framework
+            </a>
+          </div>
+          <div className="flex gap-2 items-center">
+            <label className={`flex items-center gap-1.5 px-1.5 py-0.5 cursor-pointer font-bold border-2 ${jammed ? 'bg-[#7f0000] text-[#ff4444] border-t-red-600 border-l-red-600 border-b-red-950 border-r-red-950' : 'bg-[#c0c0c0] text-black border-t-gray-600 border-l-gray-600 border-b-white border-r-white hover:bg-gray-300'}`}>
+              <input type="checkbox" checked={jammed} onChange={e=>setJammed(e.target.checked)} className="cursor-pointer"/>
+              {jammed ? '⚠ GNSS JAMMING ACTIVE' : 'SIM GNSS JAMMING'}
+            </label>
+            <label className="flex items-center gap-1.5 font-bold bg-[#c0c0c0] border-t-gray-600 border-l-gray-600 border-b-white border-r-white border-2 px-1.5 py-0.5 cursor-pointer hover:bg-gray-300">
+              <input type="checkbox" checked={plainEnglish} onChange={e=>setPlainEnglish(e.target.checked)} className="cursor-pointer"/>
+              {plainEnglish ? 'DISABLE TRANSLATION' : 'CIVILIAN TRANSLATION'}
+            </label>
+          </div>
+        </div>
+
+        {/* TARGET REGION SELECTOR (Moved from Nav) */}
+        <div className="flex items-center gap-2 px-1 pb-1 border-b border-gray-400 mb-1">
+          <span className="font-bold text-[10px] text-gray-700">// TARGET REGION ▼</span>
+          <select value={activeCountry} onChange={e=>setActiveCountry(e.target.value)} className="bg-white border-2 border-gray-500 font-bold text-[10px] px-2 py-0.5 outline-none cursor-pointer">
+            <option value="ALL">ALL REGIONS</option>
+            <option value="IR">IRAN</option>
+            <option value="RU">RUSSIA</option>
+            <option value="KP">NORTH KOREA</option>
+            <option value="CN">CHINA</option>
+            <option value="SY">SYRIA</option>
+            <option value="YE">YEMEN</option>
+          </select>
+        </div>
+
+        {/* CONTROL PANEL */}
+        <div className="bg-[#c0c0c0] border-2 border-t-gray-600 border-l-gray-600 border-b-white border-r-white p-2 flex gap-4 items-end flex-wrap">
+          <div className="flex flex-col relative">
+            <span className="text-gray-600 font-bold mb-0.5 text-[10px]">{plainEnglish ? 'TARGET LOCATION' : 'TARGET COORDS'}</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+              onFocus={() => { if(searchResults.length > 0) setShowDropdown(true); }}
+              placeholder={`${Math.abs(targetLocation.lat).toFixed(2)}${targetLocation.lat >= 0 ? 'N' : 'S'} ${Math.abs(targetLocation.lon).toFixed(2)}${targetLocation.lon >= 0 ? 'E' : 'W'} (${targetLocation.name.toUpperCase()})`}
+              className="font-bold border-2 border-inset border-gray-500 bg-white px-1.5 py-0.5 w-[230px] outline-none placeholder-black focus:bg-[#ffffcc]"
+            />
+            {showDropdown && searchResults.length > 0 && (
+              <div className="absolute top-[100%] left-0 w-[230px] bg-white border-2 border-[#000080] z-50 shadow-lg max-h-[160px] overflow-y-auto">
+                {searchResults.map(r => (
+                  <div key={r.id} onMouseDown={() => handleSelectLocation(r)} className="p-1 cursor-pointer hover:bg-[#000080] hover:text-white border-b border-gray-300 text-[11px]">
+                    {r.name.toUpperCase()}, {r.country_code}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          <div className="flex flex-col relative">
+            <span className="text-gray-600 font-bold mb-0.5 text-[10px]">{plainEnglish ? 'TIME DISPLAY' : 'SYSTEM CLOCK'}</span>
+            <select value={timeMode} onChange={e=>setTimeMode(e.target.value)} className="font-bold border-2 border-inset border-gray-500 bg-white px-1.5 py-0.5 outline-none cursor-pointer">
+              <option value="UTC">{plainEnglish ? 'UTC / ZULU TIME' : 'ZULU (UTC)'}</option>
+              <option value="LOCAL">{plainEnglish ? 'LOCAL 24H' : 'TARGET LOCAL'}</option>
+              <option value="CIV">{plainEnglish ? 'LOCAL 12H AM/PM' : 'CIVILIAN 12H'}</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col">
+            <span className="text-gray-600 font-bold mb-0.5 text-[10px]">API STATUS</span>
+            <span className={`border-2 border-inset border-gray-500 bg-white px-2 py-0.5 font-bold ${apiStatus==='LIVE'?'text-green-600':apiStatus.includes('ERROR')?'text-red-600':'text-black'}`}>
+              {apiStatus}
+            </span>
+          </div>
+
+          <button onClick={fetchWeatherData} disabled={isFetching} className={`ml-auto border-2 px-4 py-1 font-bold ${isFetching ? 'bg-gray-400 text-gray-600 border-gray-500 cursor-wait' : 'bg-[#c0c0c0] border-t-white border-l-white border-b-gray-600 border-r-gray-600 active:border-t-gray-600 active:border-l-gray-600 active:border-b-white active:border-r-white text-black cursor-pointer'}`}>
+            {isFetching ? 'RCVNG METOC...' : 'Fetch Latest METOC'}
+          </button>
+        </div>
+
+        {/* STRATEGIC LAYER — DAY SELECTOR */}
+        <div className="flex flex-col gap-0.5 mt-1">
+          <div className="text-[9px] font-bold text-gray-600 tracking-wider pl-1">▼ STRATEGIC LAYER — SELECT FORECAST DAY</div>
+          <div className="flex gap-1">
+            {dayMeta.map((label, i) => {
+              const rel = DAY_RELIABILITY[i] || DAY_RELIABILITY[0];
+              const isSelected = selDay === i;
+              return (
+                <button key={i} onClick={()=>{setSelDay(i); setSelHour(0);}} className={`flex-1 p-1 cursor-pointer border-2 flex flex-col items-center justify-center ${isSelected ? 'bg-white border-t-gray-600 border-l-gray-600 border-b-transparent border-r-white shadow-inner outline outline-1 outline-inset outline-black' : 'border-t-white border-l-white border-b-gray-600 border-r-gray-600 hover:bg-gray-100'} ${!isSelected && i>=4 ? 'bg-[#ffe4e1] opacity-90' : !isSelected && i>=2 ? 'bg-[#fff8e1]' : !isSelected ? 'bg-[#c0c0c0]' : ''}`}>
+                  <div className="font-bold text-[10px] tracking-wide">{label}</div>
+                  <div className="flex justify-center gap-[2px] my-1">
+                    {[0,1,2,3,4].map(d => (
+                      <div key={d} className={`w-[7px] h-[7px] rounded-full border border-gray-500 ${d < rel.dots ? '' : 'bg-gray-300'}`} style={{ backgroundColor: d < rel.dots ? rel.color : undefined }} />
+                    ))}
+                  </div>
+                  <div className="text-[9px] font-bold tracking-wide" style={{ color: rel.color }}>{rel.label}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* TACTICAL LAYER — WINDOW SELECTOR */}
+        <div className="flex flex-col gap-0.5 mt-1">
+          <div className="text-[9px] font-bold text-gray-600 tracking-wider pl-1">▼ TACTICAL LAYER — SELECT TIME WINDOW</div>
+          <div className="flex gap-1 items-center">
+            {TACTICAL_WINDOWS.map((w, i) => {
+              const isSelWin = selWindow === i;
+              return (
+                <button key={i} onClick={()=>{setSelWindow(i); setSelHour(0);}} className={`flex-1 p-1 cursor-pointer border-2 flex flex-col items-center justify-center ${isSelWin ? 'bg-white border-t-gray-600 border-l-gray-600 border-b-transparent border-r-white shadow-inner font-bold' : 'bg-[#c0c0c0] border-t-white border-l-white border-b-gray-600 border-r-gray-600 hover:bg-gray-100 font-bold'}`}>
+                  <div className="text-[10px]">{w.label}</div>
+                  <div className="text-[9px] text-gray-500">{w.short} UTC</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* CATEGORY FILTERS */}
+        <div className="flex flex-col gap-1 mt-2 mb-1">
+          <div className="flex gap-2 items-center flex-wrap px-1">
+            <span className="font-bold text-[10px] text-gray-700 w-12">TYPE:</span>
+            {[['ALL','ALL ASSETS'],['STRIKE','STRIKE'],['UAV','UNMANNED'],['ROTARY','ROTARY'],['SUPPORT','ISR/SUPPORT'],['WEAPONS','MUNITIONS']].map(([id,label])=>{
+              const isSel = activeCategory === id;
+              return (
+                <button key={id} onClick={()=>setActiveCategory(id)} className={`px-2 py-0.5 font-bold text-[10px] border-2 ${isSel ? 'bg-white border-t-gray-600 border-l-gray-600 border-b-transparent border-r-white' : 'bg-[#c0c0c0] border-t-white border-l-white border-b-gray-600 border-r-gray-600 hover:bg-gray-200'}`}>
+                  {label}
+                </button>
+              );
+            })}
+            <span className="ml-auto text-[10px] text-gray-600 font-bold">{filteredAssets.length} ASSETS LISTED</span>
+          </div>
+        </div>
+
+        {/* AUTOMATED INTELLIGENCE SUMMARY PANEL (V3 OVERHAUL) */}
+        {optimality && (
+          <div className="mb-1 border-2 border-t-white border-l-white border-b-gray-600 border-r-gray-600 bg-[#c0c0c0] p-1.5 shadow-sm">
+            {!plainEnglish ? (
+              // MILITARY ANALYST VIEW (DECISION SURFACE)
+              <div className="bg-black text-gray-300 border-2 border-t-gray-600 border-l-gray-600 border-b-white border-r-white p-3 font-mono text-[11px] tracking-wide shadow-inner flex flex-col gap-2">
+                
+                {/* 1. EXECUTIVE SUMMARY LINE */}
+                <div className={`text-[15px] font-bold text-center border-b border-gray-700 pb-2 uppercase ${optimality.mil.verdictColor}`}>
+                   EXEC SUMMARY: {optimality.mil.verdictMil} ({optimality.mil.confTier})
+                </div>
+
+                {/* 2. TIMELINE STRIP */}
+                <div className="flex flex-col items-center mt-1 border-b border-gray-700 pb-3 w-full">
+                   <div className="flex w-full h-[14px] border border-gray-600">
+                      {optimality.timeline24.map((t, idx) => (
+                         <div key={idx} className="flex-1 border-r border-gray-800 last:border-0" 
+                              style={{ backgroundColor: t.status === 'GREEN' ? '#00cc00' : t.status === 'AMBER' ? '#cc9900' : '#880000' }} 
+                              title={t.timeLabel}>
+                         </div>
+                      ))}
+                   </div>
+                   <div className="flex justify-between w-full text-[#00ff00] font-bold mt-1.5 text-[11px]">
+                      <span>▶ {optimality.currentStatusText}</span>
+                      <span>PRIMARY WINDOW: {optimality.windowText}</span>
+                   </div>
+                </div>
+
+                {/* 3. HARD METRICS ROW */}
+                <div className="grid grid-cols-4 gap-4 mt-1 pt-1 text-center">
+                   <div className="flex flex-col border-r border-gray-700">
+                      <span className="text-gray-500 text-[9px] mb-0.5">VIABILITY</span>
+                      <span className={`text-[14px] font-bold ${optimality.mil.viabilityPct >= 80 ? 'text-[#00ff00]' : optimality.mil.viabilityPct >= 50 ? 'text-yellow-500' : 'text-red-500'}`}>{optimality.mil.viabilityPct}% ({optimality.mil.viabilityTier})</span>
+                   </div>
+                   <div className="flex flex-col border-r border-gray-700">
+                      <span className="text-gray-500 text-[9px] mb-0.5">FCST STABILITY</span>
+                      <span className={`text-[14px] font-bold ${optimality.mil.volColor}`}>{optimality.mil.volatility.toUpperCase()}</span>
+                   </div>
+                   <div className="flex flex-col border-r border-gray-700 col-span-2 text-left pl-4">
+                      <span className="text-gray-500 text-[9px] mb-0.5">PRIMARY LIMITER</span>
+                      <div>
+                        <span className={`font-bold text-[12px] uppercase ${optimality.mil.limiterColor}`}>{optimality.mil.primaryLimiter}</span>
+                        <div className="text-[10px] text-gray-400 mt-0.5 uppercase">→ {optimality.mil.limiterContext}</div>
+                      </div>
+                   </div>
+                </div>
+
+                {/* 4. ASSET RISK PROFILE */}
+                <div className="grid grid-cols-5 gap-2 mt-2 pt-2 border-t border-gray-700 text-center uppercase">
+                   <div className="flex flex-col">
+                      <span className="text-gray-500 text-[9px]">STRIKE</span>
+                      <span className={`font-bold ${optimality.mil.riskProfile.strike.color}`}>{optimality.mil.riskProfile.strike.label}</span>
+                   </div>
+                   <div className="flex flex-col">
+                      <span className="text-gray-500 text-[9px]">UAV</span>
+                      <span className={`font-bold ${optimality.mil.riskProfile.uav.color}`}>{optimality.mil.riskProfile.uav.label}</span>
+                   </div>
+                   <div className="flex flex-col">
+                      <span className="text-gray-500 text-[9px]">ROTARY</span>
+                      <span className={`font-bold ${optimality.mil.riskProfile.rotary.color}`}>{optimality.mil.riskProfile.rotary.label}</span>
+                   </div>
+                   <div className="flex flex-col">
+                      <span className="text-gray-500 text-[9px]">ISR/SUPPORT</span>
+                      <span className={`font-bold ${optimality.mil.riskProfile.isr.color}`}>{optimality.mil.riskProfile.isr.label}</span>
+                   </div>
+                   <div className="flex flex-col">
+                      <span className="text-gray-500 text-[9px]">PGM MUNITIONS</span>
+                      <span className={`font-bold ${optimality.mil.riskProfile.weapons.color}`}>{optimality.mil.riskProfile.weapons.label}</span>
+                   </div>
+                </div>
+
+              </div>
+            ) : (
+              // CIVILIAN TRANSLATION VIEW
+              <div className="bg-white border-2 border-t-gray-600 border-l-gray-600 border-b-white border-r-white p-3 shadow-sm text-[12px]">
+                  <div className="font-bold text-[#000080] border-b border-gray-300 pb-1.5 mb-2 tracking-wide text-[13px]">// WEATHER IMPACT SUMMARY</div>
+                  
+                  <div className="flex flex-col gap-3">
+                      <div className="bg-[#ffffcc] border border-[#cc9900] p-2 mt-1 mb-1 font-bold text-black flex gap-2 text-[13px]">
+                          <span className="text-[#886600]">⚠️ BOTTOM LINE:</span>
+                          <span>{optimality.civ.verdictCiv}</span>
+                      </div>
+
+                      <div className="mt-2">
+                        <div className="text-gray-600 font-bold text-[10px] mb-1">OPERATIONAL TIMELINE (24H)</div>
+                        <div className="flex w-full h-[12px] border border-gray-400">
+                          {optimality.timeline24.map((t, idx) => (
+                             <div key={idx} className="flex-1 border-r border-gray-300 last:border-0" 
+                                  style={{ backgroundColor: t.status === 'GREEN' ? '#22c55e' : t.status === 'AMBER' ? '#eab308' : '#ef4444' }} 
+                                  title={t.timeLabel}>
+                             </div>
+                          ))}
+                        </div>
+                        <div className="text-gray-800 font-bold mt-1 text-[11px]">
+                          CURRENT STATUS: {optimality.currentStatusText.replace('NOW: ', '')}
+                        </div>
+                      </div>
+
+                  </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* MAIN MATRIX */}
+        <div className="border-2 border-t-gray-600 border-l-gray-600 border-b-white border-r-white bg-white flex flex-col max-h-[380px] overflow-y-auto relative">
+          <div className="bg-[#000080] text-white px-2 py-0.5 text-[10px] font-bold sticky top-0 z-20 flex justify-between tracking-wide">
+            <span>{plainEnglish ? 'HARDWARE CLEARANCE GRID' : 'ASSET THRESHOLD MATRIX'}</span>
+            <span>
+              {dayMeta[selDay]} // {(TACTICAL_WINDOWS[selWindow]||{}).label} 
+              {jammed ? ' // ⚠ GNSS CONTESTED' : ''}
+              {selDay >= 2 ? ' // ~CF ADJUSTMENTS ACTIVE' : ''}
+            </span>
+          </div>
+          
+          {windowHours.length === 0 ? (
+            <div className="p-8 text-center font-bold text-gray-500 bg-[#ece9d8]">
+              AWAITING METOC DATALINK — FETCH WEATHER DATA
+            </div>
+          ) : (
+            <table className="w-full text-left border-collapse table-fixed">
+              <thead className="sticky top-[18px] z-10 bg-[#c0c0c0]">
+                <tr>
+                  <th className="border border-gray-400 p-1 w-[220px] border-t-white border-l-white border-b-gray-600 border-r-gray-600 align-bottom pb-2">
+                    <div className="font-bold pl-1">{plainEnglish ? 'EQUIPMENT TYPE' : 'SYSTEM / PLATFORM'}</div>
+                    <div className="text-[8px] text-gray-600 font-normal pl-1">Click badge for source citation</div>
+                  </th>
+                  {windowHours.map((fc, i) => {
+                    const tLabel = timeMode === 'UTC' ? fc.time : timeMode === 'LOCAL' ? fc.locTime : fc.civTime;
+                    const isSelH = selHour === i;
+                    const cfColor = fc.cf >= 80 ? 'text-green-600' : fc.cf >= 60 ? 'text-yellow-600' : fc.cf >= 45 ? 'text-red-500' : 'text-red-900';
+                    return (
+                      <th key={i} onClick={() => setSelHour(i)} className={`border border-gray-500 p-1 cursor-pointer text-center font-normal ${isSelH ? 'bg-gray-600 text-white border-t-gray-800 border-l-gray-800 border-b-white border-r-white' : 'bg-[#c0c0c0] text-black border-t-white border-l-white border-b-gray-600 border-r-gray-600 hover:bg-gray-300'}`}>
+                        <div className="font-bold">{tLabel}</div>
+                        <div className={`text-[9px] mt-0.5 font-bold ${isSelH ? 'text-green-300' : cfColor}`}>CF: {fc.cf}%</div>
+                        {selDay >= 2 && <div className={`text-[8px] font-bold ${isSelH ? 'text-yellow-400' : 'text-yellow-700'}`}>±{Math.round((1-getForecastUncertainty(selDay))*30)}%</div>}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAssets.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center font-bold bg-[#ece9d8] text-gray-500 border-b border-gray-400 tracking-widest">
+                      {plainEnglish ? 'NO MATCHING EQUIPMENT FOUND FOR SELECTED FILTERS' : '# NULL_SET: NO DATALINK RECORDS MATCH APPLIED FILTER'}
+                    </td>
+                  </tr>
+                ) : filteredAssets.map((asset) => (
+                  <tr key={asset.id} className="border-b border-gray-400 hover:bg-blue-100 group">
+                    <td className={`border-r border-gray-400 p-1.5 bg-[#ece9d8] border-l-4 ${getCountryBorderColor(asset.country)}`}>
+                      <div className="font-bold flex items-center justify-between">
+                        <span className="truncate pr-2">{asset.name}</span>
+                        <span 
+                          onClick={(e) => { e.stopPropagation(); setTooltip({x:e.clientX, y:e.clientY, text:asset.src, name:asset.name, conf:asset.conf}); }}
+                          className={`text-white text-[8px] px-1 py-0.5 cursor-help font-bold shrink-0 border border-white/30 hover:scale-105 ${getConfidenceBadgeColor(asset.conf)}`}
+                          title="Click to view source"
+                        >
+                          {asset.conf.slice(0,4)}
+                        </span>
+                      </div>
+                      <div className="text-[9px] text-gray-600 flex justify-between items-center mt-0.5">
+                        <span className="truncate pr-1">{plainEnglish ? asset.civ : asset.type}</span>
+                        <div className="flex gap-1 items-center shrink-0">
+                           {asset.asym === 'FAVORS_ATTACKER' && <span className="text-purple-600 font-bold" title="Weather asymmetric: Favors Attacker">★</span>}
+                           <span className="font-bold text-black">{asset.country}</span>
+                        </div>
+                      </div>
+                    </td>
+                    {windowHours.map((fc, idx) => {
+                      const result = evalCell(asset, fc);
+                      const {bg, fg} = cellBg(result, idx === selHour);
+                      return (
+                        <td 
+                          key={idx} 
+                          onClick={() => setSelHour(idx)}
+                          style={{ backgroundColor: bg, color: fg }}
+                          className={`p-1 text-center text-[9px] font-bold cursor-pointer border-r border-gray-400 ${idx === selHour ? 'ring-2 ring-inset ring-black/50' : ''}`}
+                        >
+                          {result.reason}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* LEGEND */}
+        <div className="flex gap-3 px-1 py-0.5 text-[9px] font-bold items-center flex-wrap">
+          <span className="text-gray-600">LEGEND:</span>
+          <span className="bg-[#00cc00] text-black px-1.5">OPTIMAL</span>
+          <span className="bg-[#ffcc00] text-black px-1.5">AMBER/MARGINAL</span>
+          <span className="bg-[#cc0000] text-white px-1.5">RED/DEGRADED</span>
+          <span className="bg-[#c2410c] text-white px-1.5">FALLBACK MODE</span>
+          <span className="bg-[#166534] text-white px-1.5 border border-black">OPT [LOW CF]</span>
+          <span className="bg-[#7f1d1d] text-white px-1.5 border border-black">RED [LOW CF]</span>
+          <span className="text-purple-600 ml-2">★=ATTACKER-FAVORED</span>
+          <span className="text-yellow-700">[~CF]=UNCERTAINTY ADJUSTED</span>
+        </div>
+
+        {/* WEATHER DETAIL PANEL */}
+        {currentFc && (
+          <div className="flex gap-2 mt-1">
+            <div className="flex-1 border-2 border-t-gray-600 border-l-gray-600 border-b-white border-r-white bg-[#c0c0c0] flex flex-col">
+              <div className="bg-[#000080] text-white px-2 py-0.5 text-[10px] font-bold flex gap-4 items-center">
+                <span>{plainEnglish ? `WEATHER: ${currentFc.timeCiv} (Local)` : `TELEMETRY (${currentFc.time})`}</span>
+                <span className="text-green-300">● LIVE</span>
+                {jammed && <span className="text-red-400">⚠ GNSS JAMMED</span>}
+                {selDay >= 2 && <span className="text-yellow-400">⚠ PROBABILISTIC — {DAY_RELIABILITY[selDay]?.label} CONFIDENCE</span>}
+              </div>
+              <div className="p-1.5 grid grid-cols-6 gap-1.5">
+                {[
+                  { label: plainEnglish?'CLOUD BASE':'CEILING', val:`${currentFc.ceil} FT`, sub: currentFc.ceil<500?'⚠ VERY LOW':currentFc.ceil<1500?'ROTARY LIMIT':'OK' },
+                  { label: 'VISIBILITY', val:`${currentFc.visDisp} SM`, sub: currentFc.visSM<1?'⚠ NEAR ZERO':currentFc.visSM<3?'VFR MARGINAL':'CLEAR' },
+                  { label: plainEnglish?'PRECIP':'PRECIP', val:`${currentFc.rain.toFixed(2)}"`, sub: currentFc.precipType==='NONE'?'DRY':`[${currentFc.precipType}]`, subColor:currentFc.precipType==='SNOW'||currentFc.precipType==='FZRA'?'#dc2626':'#2563eb' },
+                  { label: plainEnglish?'WIND/GUSTS':'WIND/GUST', val:`${currentFc.wind}/${currentFc.gust} KT`, sub: currentFc.gust>25?'⚠ GUST ADVISORY':currentFc.gust>15?'MODERATE':'CALM' },
+                  { label: plainEnglish?'TEMP':'TEMP (2M)', val:`${currentFc.tempC}°C`, sub: currentFc.tempC<-15?'⚠ EXTREME COLD':currentFc.tempC<2?'ICING ZONE':'NOMINAL', subColor:currentFc.tempC<-15?'#dc2626':currentFc.tempC<2?'#d97706':'#16a34a' },
+                  { label: plainEnglish?'PRESSURE':'BARO TREND', val:`${currentFc.pTend>0?'+':''}${currentFc.pTend}`, sub:currentFc.pTendText, subColor:currentFc.pTendColor },
+                ].map(({label,val,sub,subColor}) => (
+                  <div key={label} className="border border-gray-400 bg-white p-1 shadow-sm">
+                    <div className="text-gray-500 font-bold border-b border-gray-200 mb-0.5 text-[9px]">{label}</div>
+                    <div className="font-bold text-[12px]">{val}</div>
+                    <div className="mt-0.5 text-[9px] font-bold" style={{ color: subColor || '#888' }}>{sub}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="px-1.5 pb-1.5">
+                <div className="text-gray-600 font-bold mb-0.5 border-b border-gray-400 text-[9px]">
+                  AUTO-METAR // MODEL DATA {selDay>=2?`// ±${Math.round((1-getForecastUncertainty(selDay))*30)}% UNCERTAINTY`:''}
+                </div>
+                <div className="bg-black text-[#00FF00] font-mono p-1 text-[11px] border-2 border-t-gray-600 border-l-gray-600 border-b-white border-r-white">
+                  {currentFc.metar}
+                </div>
+              </div>
+            </div>
+
+            <div className="w-[200px] border-2 border-t-gray-600 border-l-gray-600 border-b-white border-r-white bg-[#c0c0c0] flex flex-col shrink-0">
+               <div className="bg-[#000080] text-white px-2 py-0.5 text-[10px] font-bold">
+                 {plainEnglish ? 'SATELLITE & MOON DATA' : 'SPACE & ASTRO DATA'}
+               </div>
+               <div className="p-1.5 flex flex-col gap-1.5 bg-white h-full border border-gray-400 m-1 shadow-sm">
+                  <div>
+                    <div className="font-bold flex justify-between border-b border-gray-200 pb-0.5">
+                      <span>{plainEnglish ? 'MOON ILLUM' : 'LUNAR ILLUM'}</span>
+                      <span>{currentFc.illum}%</span>
+                    </div>
+                    <div className="bg-gray-200 border border-gray-400 h-[6px] my-1">
+                      <div className="h-full" style={{ width: `${currentFc.illum}%`, backgroundColor: currentFc.illum>50?'#facc15':currentFc.illum>25?'#f59e0b':'#22c55e' }} />
+                    </div>
+                    <div className="text-[9px] text-gray-600 font-bold">
+                      NVG: {currentFc.illum>25?'⚠ HIGH RISK':currentFc.illum>10?'MODERATE':'✓ DARK SKY'}
+                    </div>
+                  </div>
+                  <div className="mt-1">
+                    <div className="font-bold flex justify-between border-b border-gray-200 pb-0.5">
+                      <span>GPS DOP</span>
+                      <span className={currentFc.gpsDop>=3?'text-red-600':currentFc.gpsDop>=2?'text-yellow-600':'text-green-600'}>
+                        {currentFc.gpsDop.toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="text-[9px] text-gray-600 font-bold mt-1">
+                      {jammed ? '⚠ JAMMING SIM ACTIVE' : `ENV: ${currentFc.gpsDop<1.5?'NOMINAL':currentFc.gpsDop<2.5?'DEGRADED':'CRITICAL'}`}
+                    </div>
+                  </div>
+                  <div className="mt-1">
+                    <div className="font-bold flex justify-between border-b border-gray-200 pb-0.5">
+                      <span>FCST SKILL</span>
+                      <span className={currentFc.cf>=80?'text-green-600':currentFc.cf>=60?'text-yellow-600':'text-red-600'}>
+                        {currentFc.cf}%
+                      </span>
+                    </div>
+                    <div className="text-[9px] font-bold mt-1" style={{ color: DAY_RELIABILITY[selDay]?.color }}>
+                      {DAY_RELIABILITY[selDay]?.label} — DAY {selDay+1}
+                    </div>
+                  </div>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* STATUS BAR */}
+        <div className="flex justify-between border border-gray-500 bg-[#c0c0c0] p-1 text-[10px] mt-1 font-mono">
+           <span className={`border-r border-gray-500 pr-2 font-bold ${apiStatus.includes('ERROR') ? 'text-red-700' : 'text-black'}`}>
+             STATUS: {apiStatus}
+           </span>
+           <span className="border-r border-gray-500 pr-2 px-2">
+             NATION: {activeCountry === 'ALL' ? 'MIXED' : activeCountry}
+           </span>
+           <span className="border-r border-gray-500 pr-2 px-2">
+             VIEW: DAY {selDay+1} | {TACTICAL_WINDOWS[selWindow]?.label}
+           </span>
+           <span className="px-2">LATENCY: {isFetching ? '...' : '42ms'}</span>
+        </div>
+        
+        {/* FOOTER DISCLAIMER */}
+        <div className="text-center text-[10px] text-gray-500 font-bold mt-2 pb-2">
+          Threshold values are OSINT-derived estimates. Confidence tiers reflect source quality. See Methodology / Threshold Framework for full provenance.
+        </div>
+
+        {/* TOOLTIP MOUNT */}
+        {tooltip && (
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            style={{ 
+              position: 'fixed', 
+              left: Math.min(tooltip.x + 15, window.innerWidth - 320), 
+              top: Math.min(tooltip.y + 15, window.innerHeight - 100),
+              zIndex: 9999
+            }}
+            className="bg-[#ffffcc] border-2 border-[#000080] p-1.5 w-[300px] shadow-[4px_4px_8px_rgba(0,0,0,0.5)] font-mono text-[10px]"
+          >
+            <div className="font-bold border-b border-gray-400 mb-1 pb-0.5 flex justify-between items-center">
+              <span className="text-[#000080]">SOURCE CITATION</span>
+              <span className={`text-white px-1 py-0.5 text-[8px] ${getConfidenceBadgeColor(tooltip.conf)}`}>{tooltip.conf}</span>
+            </div>
+            <div className="font-bold text-gray-800 mb-1">{tooltip.name}</div>
+            <div className="text-black leading-tight">{tooltip.text}</div>
+            <div className="mt-2 text-[8px] text-gray-500 italic text-right">Click anywhere to close</div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
