@@ -20,6 +20,7 @@
             font-family: sans-serif;
         }
     </style>
+    <script src="clearance-engine.js"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -231,9 +232,110 @@
           { id:'CN_YJ12',  name:'YJ-12 Anti-Ship Cruise',  country:'CN', cat:'WEAPONS', conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{rain:2.0,gpsDop:2.5,wind:35},                src:'CSIS Missile Threat / IISS Military Balance / Jane\'s' },
         ];
 
+        // ─── PLATFORM DETECTION DOMAIN DATABASE ────────────────────────────────────────────────
+        const PLATFORM_DATABASE = [
+          // UNITED STATES
+          { id: 'B2', name: 'B-2A Spirit', nation: 'US', nato_name: 'Spirit', type: 'fixed_wing', role: 'STRATEGIC STRIKE', secondary_role: 'PENETRATION SUPPORT', single_role: false, altitude_band: 'high', detection_domains: { visual: 0.02, infrared: 0.10, radar: 0.70, passive_rf: 0.15, acoustic: 0.03 }, rcs_profile: 'very_low', illumination_sensitivity: 'negligible', notes: 'Primary stealth bomber. RCS dominant threat. Illumination irrelevant at altitude.' },
+          { id: 'F22', name: 'F-22A Raptor', nation: 'US', nato_name: 'Raptor', type: 'fixed_wing', role: 'AIR SUPERIORITY', secondary_role: 'ESCORT / SEAD', single_role: false, altitude_band: 'high', detection_domains: { visual: 0.02, infrared: 0.10, radar: 0.73, passive_rf: 0.13, acoustic: 0.02 }, rcs_profile: 'very_low', illumination_sensitivity: 'negligible', notes: 'Radar-centric threat environment. Illumination does not ground in escort role.' },
+          { id: 'F35', name: 'F-35A Lightning II', nation: 'US', nato_name: 'Lightning', type: 'fixed_wing', role: 'MULTI-ROLE STRIKE', secondary_role: 'CAS / ISR / ESCORT', single_role: false, altitude_band: 'medium', detection_domains: { visual: 0.05, infrared: 0.12, radar: 0.68, passive_rf: 0.13, acoustic: 0.02 }, rcs_profile: 'very_low', illumination_sensitivity: 'low', notes: 'Multi-role. Visual weight increases in CAS profile at lower altitude.' },
+          { id: 'F15E', name: 'F-15E Strike Eagle', nation: 'US', nato_name: 'Eagle', type: 'fixed_wing', role: 'DEEP STRIKE', secondary_role: 'AIR SUPERIORITY', single_role: false, altitude_band: 'medium', detection_domains: { visual: 0.15, infrared: 0.15, radar: 0.55, passive_rf: 0.10, acoustic: 0.05 }, rcs_profile: 'high', illumination_sensitivity: 'moderate', notes: 'Conventional platform. Radar and visual both relevant.' },
+          { id: 'F16C', name: 'F-16C Viper', nation: 'US', nato_name: 'Viper', type: 'fixed_wing', role: 'MULTI-ROLE', secondary_role: 'CAS / SEAD / ESCORT', single_role: false, altitude_band: 'medium', detection_domains: { visual: 0.18, infrared: 0.15, radar: 0.52, passive_rf: 0.10, acoustic: 0.05 }, rcs_profile: 'high', illumination_sensitivity: 'moderate', notes: 'Conventional multi-role. Role modifier applies per mission context.' },
+          { id: 'A10', name: 'A-10C Thunderbolt II', nation: 'US', nato_name: 'Warthog', type: 'fixed_wing', role: 'CAS', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.40, infrared: 0.20, radar: 0.30, passive_rf: 0.05, acoustic: 0.05 }, rcs_profile: 'very_high', illumination_sensitivity: 'high', notes: 'Low slow CAS platform. Visual domain critical. Illumination highly relevant.' },
+          { id: 'AC130', name: 'AC-130J Ghostrider', nation: 'US', nato_name: 'Spectre', type: 'fixed_wing', role: 'FIRE SUPPORT', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.35, infrared: 0.25, radar: 0.30, passive_rf: 0.05, acoustic: 0.05 }, rcs_profile: 'very_high', illumination_sensitivity: 'critical', notes: 'Low orbit fixed profile. Visual and IR domain critical. Illumination mission-breaking.' },
+          { id: 'B52', name: 'B-52H Stratofortress', nation: 'US', nato_name: 'Stratofortress', type: 'fixed_wing', role: 'STANDOFF STRIKE', secondary_role: null, single_role: true, altitude_band: 'high', detection_domains: { visual: 0.05, infrared: 0.15, radar: 0.65, passive_rf: 0.10, acoustic: 0.05 }, rcs_profile: 'very_high', illumination_sensitivity: 'negligible', notes: 'Standoff only. Does not penetrate defended airspace. Illumination irrelevant.' },
+          { id: 'MQ9', name: 'MQ-9 Reaper', nation: 'US', nato_name: 'Reaper', type: 'uav', role: 'ATTACK / ISR', secondary_role: null, single_role: true, altitude_band: 'medium', detection_domains: { visual: 0.25, infrared: 0.20, radar: 0.40, passive_rf: 0.10, acoustic: 0.05 }, rcs_profile: 'medium', illumination_sensitivity: 'moderate', notes: 'Medium altitude strike and surveillance. Cannot be reclassified.' },
+          { id: 'RQ4', name: 'RQ-4 Global Hawk', nation: 'US', nato_name: 'Global Hawk', type: 'uav', role: 'STRATEGIC ISR', secondary_role: null, single_role: true, altitude_band: 'very_high', detection_domains: { visual: 0.01, infrared: 0.05, radar: 0.50, passive_rf: 0.40, acoustic: 0.04 }, rcs_profile: 'medium', illumination_sensitivity: 'negligible', notes: '60,000ft+ operational altitude. Visual irrelevant. Passive RF primary.' },
+          { id: 'RC135', name: 'RC-135W Rivet Joint', nation: 'US', nato_name: 'Rivet Joint', type: 'fixed_wing', role: 'SIGINT / RECONNAISSANCE', secondary_role: null, single_role: true, altitude_band: 'high', detection_domains: { visual: 0.02, infrared: 0.08, radar: 0.40, passive_rf: 0.48, acoustic: 0.02 }, rcs_profile: 'high', illumination_sensitivity: 'negligible', notes: 'Standoff SIGINT platform. Does not penetrate. Passive RF emissions primary concern.' },
+          { id: 'AH64', name: 'AH-64E Apache', nation: 'US', nato_name: 'Apache', type: 'rotary', role: 'ATTACK HELICOPTER', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.35, infrared: 0.30, radar: 0.25, passive_rf: 0.05, acoustic: 0.05 }, rcs_profile: 'high', illumination_sensitivity: 'critical', notes: 'NOE flight profile. Visual and IR dominant. Illumination mission-critical variable.' },
+          { id: 'UH60', name: 'UH-60 Black Hawk', nation: 'US', nato_name: 'Black Hawk', type: 'rotary', role: 'TRANSPORT / INSERTION', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.40, infrared: 0.25, radar: 0.25, passive_rf: 0.05, acoustic: 0.05 }, rcs_profile: 'high', illumination_sensitivity: 'critical', notes: 'SOF insertion profile. Visual domain dominant. Illumination critical.' },
+          { id: 'TOMAHAWK', name: 'BGM-109 Tomahawk', nation: 'US', nato_name: 'Tomahawk', type: 'missile', role: 'STANDOFF STRIKE', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.05, infrared: 0.10, radar: 0.70, passive_rf: 0.10, acoustic: 0.05 }, rcs_profile: 'low', illumination_sensitivity: 'negligible', notes: 'Terrain following cruise missile. No optical threat vector. Radar primary.' },
+          { id: 'JASSM', name: 'AGM-158 JASSM-ER', nation: 'US', nato_name: 'JASSM', type: 'missile', role: 'STANDOFF STRIKE', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.03, infrared: 0.08, radar: 0.75, passive_rf: 0.10, acoustic: 0.04 }, rcs_profile: 'very_low', illumination_sensitivity: 'negligible', notes: 'Low observable cruise missile. Radar primary. Illumination irrelevant.' },
+          { id: 'GBU57', name: 'GBU-57A/B MOP', nation: 'US', nato_name: 'MOP', type: 'bomb', role: 'GRAVITY STRIKE', secondary_role: null, single_role: true, altitude_band: 'high', detection_domains: { visual: 0.01, infrared: 0.01, radar: 0.01, passive_rf: 0.01, acoustic: 0.01 }, rcs_profile: 'very_high', illumination_sensitivity: 'negligible', notes: 'Clearance inherited entirely from delivery platform (B-2A). No independent assessment.' },
+
+          // RUSSIA
+          { id: 'SU34', name: 'Su-34 Fullback', nation: 'RU', nato_name: 'Fullback', type: 'fixed_wing', role: 'STRIKE', secondary_role: 'TACTICAL BOMBING', single_role: false, altitude_band: 'medium', detection_domains: { visual: 0.20, infrared: 0.18, radar: 0.48, passive_rf: 0.09, acoustic: 0.05 }, rcs_profile: 'high', illumination_sensitivity: 'moderate', notes: 'Primary Russian strike platform in Ukraine theater. Conventional RCS.' },
+          { id: 'SU35S', name: 'Su-35S Flanker-E', nation: 'RU', nato_name: 'Flanker-E', type: 'fixed_wing', role: 'AIR SUPERIORITY', secondary_role: 'ESCORT', single_role: false, altitude_band: 'high', detection_domains: { visual: 0.15, infrared: 0.18, radar: 0.55, passive_rf: 0.08, acoustic: 0.04 }, rcs_profile: 'high', illumination_sensitivity: 'moderate', notes: 'Conventional 4th gen. No stealth. Visual relevant at medium altitude.' },
+          { id: 'SU57', name: 'Su-57 Felon', nation: 'RU', nato_name: 'Felon', type: 'fixed_wing', role: 'AIR SUPERIORITY', secondary_role: 'STEALTH STRIKE', single_role: false, altitude_band: 'high', detection_domains: { visual: 0.05, infrared: 0.12, radar: 0.68, passive_rf: 0.12, acoustic: 0.03 }, rcs_profile: 'low', illumination_sensitivity: 'low', notes: '5th gen stealth. RCS-optimized but not to F-22/F-35 standard. Illumination low weight.' },
+          { id: 'TU95', name: 'Tu-95MS Bear', nation: 'RU', nato_name: 'Bear', type: 'fixed_wing', role: 'STANDOFF STRIKE', secondary_role: null, single_role: true, altitude_band: 'high', detection_domains: { visual: 0.05, infrared: 0.15, radar: 0.60, passive_rf: 0.15, acoustic: 0.05 }, rcs_profile: 'very_high', illumination_sensitivity: 'negligible', notes: 'Cruise missile delivery only. Does not penetrate. Illumination irrelevant.' },
+          { id: 'TU160', name: 'Tu-160 Blackjack', nation: 'RU', nato_name: 'Blackjack', type: 'fixed_wing', role: 'STANDOFF STRIKE', secondary_role: null, single_role: true, altitude_band: 'high', detection_domains: { visual: 0.03, infrared: 0.12, radar: 0.65, passive_rf: 0.15, acoustic: 0.05 }, rcs_profile: 'very_high', illumination_sensitivity: 'negligible', notes: 'Supersonic standoff bomber. Cruise missile delivery only.' },
+          { id: 'KA52', name: 'Ka-52 Alligator', nation: 'RU', nato_name: 'Alligator', type: 'rotary', role: 'ATTACK HELICOPTER', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.35, infrared: 0.30, radar: 0.25, passive_rf: 0.05, acoustic: 0.05 }, rcs_profile: 'high', illumination_sensitivity: 'critical', notes: 'NOE attack profile. Visual and IR dominant. Illumination critical.' },
+          { id: 'SHAHED136', name: 'Shahed-136 / Geran-2', nation: 'RU', nato_name: 'Shahed', type: 'uav', role: 'ATTACK', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.45, infrared: 0.20, radar: 0.25, passive_rf: 0.05, acoustic: 0.05 }, rcs_profile: 'medium', illumination_sensitivity: 'critical', notes: 'One-way kamikaze. Low slow propeller-driven. Visual domain critical. Cannot reclassify.' },
+          { id: 'LANCET', name: 'Lancet Loitering Munition', nation: 'RU', nato_name: 'Lancet', type: 'missile', role: 'ATTACK', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.40, infrared: 0.20, radar: 0.30, passive_rf: 0.05, acoustic: 0.05 }, rcs_profile: 'low', illumination_sensitivity: 'high', notes: 'Loitering munition. Low altitude observation then strike. Visual primary.' },
+          { id: 'KH101', name: 'Kh-101 Cruise Missile', nation: 'RU', nato_name: 'Kh-101', type: 'missile', role: 'STANDOFF STRIKE', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.03, infrared: 0.08, radar: 0.72, passive_rf: 0.12, acoustic: 0.05 }, rcs_profile: 'low', illumination_sensitivity: 'negligible', notes: 'Low observable cruise missile. Terrain following. Illumination irrelevant.' },
+          { id: 'KINZHAL', name: 'Kh-47M2 Kinzhal', nation: 'RU', nato_name: 'Kinzhal', type: 'missile', role: 'STANDOFF STRIKE', secondary_role: null, single_role: true, altitude_band: 'ballistic', detection_domains: { visual: 0.01, infrared: 0.10, radar: 0.80, passive_rf: 0.05, acoustic: 0.04 }, rcs_profile: 'medium', illumination_sensitivity: 'negligible', notes: 'Hypersonic air-launched ballistic. No visual threat vector. Radar terminal phase.' },
+          { id: 'ISKANDER', name: 'Iskander-M', nation: 'RU', nato_name: 'Iskander', type: 'missile', role: 'STANDOFF STRIKE', secondary_role: null, single_role: true, altitude_band: 'ballistic', detection_domains: { visual: 0.01, infrared: 0.10, radar: 0.80, passive_rf: 0.05, acoustic: 0.04 }, rcs_profile: 'low', illumination_sensitivity: 'negligible', notes: 'Short range ballistic. Maneuvering terminal phase. Illumination irrelevant.' },
+
+          // IRAN
+          { id: 'F14_IR', name: 'F-14A Tomcat (IRIAF)', nation: 'IR', nato_name: 'Tomcat', type: 'fixed_wing', role: 'AIR SUPERIORITY', secondary_role: 'INTERCEPT', single_role: false, altitude_band: 'high', detection_domains: { visual: 0.20, infrared: 0.18, radar: 0.50, passive_rf: 0.08, acoustic: 0.04 }, rcs_profile: 'high', illumination_sensitivity: 'moderate', notes: 'Severely degraded fleet. Aging airframe. Conventional RCS. Parts-starved.' },
+          { id: 'F4_IR', name: 'F-4D/E Phantom (IRIAF)', nation: 'IR', nato_name: 'Phantom', type: 'fixed_wing', role: 'STRIKE', secondary_role: 'INTERCEPT', single_role: false, altitude_band: 'medium', detection_domains: { visual: 0.25, infrared: 0.18, radar: 0.45, passive_rf: 0.08, acoustic: 0.04 }, rcs_profile: 'very_high', illumination_sensitivity: 'high', notes: 'Legacy platform. Very high RCS. Limited operational availability.' },
+          { id: 'SHAHED129', name: 'Shahed-129', nation: 'IR', nato_name: 'Shahed-129', type: 'uav', role: 'ATTACK / ISR', secondary_role: null, single_role: true, altitude_band: 'medium', detection_domains: { visual: 0.28, infrared: 0.18, radar: 0.38, passive_rf: 0.10, acoustic: 0.06 }, rcs_profile: 'medium', illumination_sensitivity: 'moderate', notes: 'Medium altitude Iranian UCAV. Strike and surveillance. Cannot reclassify.' },
+          { id: 'FATEH110', name: 'Fateh-110 Ballistic', nation: 'IR', nato_name: 'Fateh-110', type: 'missile', role: 'STANDOFF STRIKE', secondary_role: null, single_role: true, altitude_band: 'ballistic', detection_domains: { visual: 0.01, infrared: 0.10, radar: 0.80, passive_rf: 0.05, acoustic: 0.04 }, rcs_profile: 'medium', illumination_sensitivity: 'negligible', notes: 'Short range ballistic missile. Illumination irrelevant.' },
+
+          // CHINA
+          { id: 'J20', name: 'J-20 Mighty Dragon', nation: 'CN', nato_name: 'Mighty Dragon', type: 'fixed_wing', role: 'AIR SUPERIORITY', secondary_role: 'STEALTH STRIKE', single_role: false, altitude_band: 'high', detection_domains: { visual: 0.04, infrared: 0.11, radar: 0.70, passive_rf: 0.12, acoustic: 0.03 }, rcs_profile: 'very_low', illumination_sensitivity: 'low', notes: '5th gen stealth. RCS-optimized. Illumination low weight in all roles.' },
+          { id: 'J16', name: 'J-16 Strike Flanker', nation: 'CN', nato_name: 'Strike Flanker', type: 'fixed_wing', role: 'MULTI-ROLE STRIKE', secondary_role: 'AIR SUPERIORITY', single_role: false, altitude_band: 'medium', detection_domains: { visual: 0.18, infrared: 0.17, radar: 0.50, passive_rf: 0.10, acoustic: 0.05 }, rcs_profile: 'high', illumination_sensitivity: 'moderate', notes: 'Conventional 4th gen multi-role. Both radar and visual relevant.' },
+          { id: 'DF26', name: 'DF-26 IRBM', nation: 'CN', nato_name: 'DF-26', type: 'missile', role: 'STANDOFF STRIKE', secondary_role: null, single_role: true, altitude_band: 'ballistic', detection_domains: { visual: 0.01, infrared: 0.08, radar: 0.85, passive_rf: 0.04, acoustic: 0.02 }, rcs_profile: 'medium', illumination_sensitivity: 'negligible', notes: 'Intermediate range ballistic. Anti-ship and land attack. Illumination irrelevant.' },
+          { id: 'TB001', name: 'TB-001 Twin-Tail Scorpion', nation: 'CN', nato_name: 'Twin-Tail', type: 'uav', role: 'ATTACK / ISR', secondary_role: null, single_role: true, altitude_band: 'medium', detection_domains: { visual: 0.25, infrared: 0.18, radar: 0.40, passive_rf: 0.12, acoustic: 0.05 }, rcs_profile: 'medium', illumination_sensitivity: 'moderate', notes: 'Medium altitude UCAV. Strike and ISR. Single role — no reclassification.' },
+
+          // ISRAEL
+          { id: 'F35I', name: 'F-35I Adir', nation: 'IL', nato_name: 'Adir', type: 'fixed_wing', role: 'MULTI-ROLE STRIKE', secondary_role: 'STEALTH PENETRATION / ISR', single_role: false, altitude_band: 'high', detection_domains: { visual: 0.04, infrared: 0.11, radar: 0.70, passive_rf: 0.12, acoustic: 0.03 }, rcs_profile: 'very_low', illumination_sensitivity: 'low', notes: 'Israeli-modified F-35. Additional sensor suite. RCS primary threat domain.' },
+          { id: 'F15I', name: 'F-15I Ra\'am', nation: 'IL', nato_name: 'Ra\'am', type: 'fixed_wing', role: 'DEEP STRIKE', secondary_role: 'AIR SUPERIORITY', single_role: false, altitude_band: 'medium', detection_domains: { visual: 0.18, infrared: 0.16, radar: 0.52, passive_rf: 0.09, acoustic: 0.05 }, rcs_profile: 'high', illumination_sensitivity: 'moderate', notes: 'Israeli F-15E variant optimized for long range strike.' },
+          { id: 'HERMES900', name: 'Hermes 900', nation: 'IL', nato_name: 'Hermes', type: 'uav', role: 'ISR / ATTACK', secondary_role: null, single_role: true, altitude_band: 'medium', detection_domains: { visual: 0.22, infrared: 0.18, radar: 0.42, passive_rf: 0.13, acoustic: 0.05 }, rcs_profile: 'low', illumination_sensitivity: 'moderate', notes: 'Medium altitude ISR and strike UCAV. Single role — cannot reclassify.' },
+          { id: 'HAROP', name: 'Harop Loitering Munition', nation: 'IL', nato_name: 'Harop', type: 'missile', role: 'ATTACK', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.38, infrared: 0.18, radar: 0.32, passive_rf: 0.08, acoustic: 0.04 }, rcs_profile: 'low', illumination_sensitivity: 'high', notes: 'Anti-radiation loitering munition. Low altitude. Visual domain primary.' },
+
+          // UKRAINE
+          { id: 'MIG29_UA', name: 'MiG-29 Fulcrum (UAF)', nation: 'UA', nato_name: 'Fulcrum', type: 'fixed_wing', role: 'AIR SUPERIORITY', secondary_role: 'STRIKE', single_role: false, altitude_band: 'medium', detection_domains: { visual: 0.22, infrared: 0.17, radar: 0.48, passive_rf: 0.09, acoustic: 0.04 }, rcs_profile: 'high', illumination_sensitivity: 'moderate', notes: 'Soviet-era platform. Upgraded avionics. Conventional RCS.' },
+          { id: 'F16_UA', name: 'F-16A/B (UAF)', nation: 'UA', nato_name: 'Fighting Falcon', type: 'fixed_wing', role: 'MULTI-ROLE', secondary_role: 'CAS / INTERCEPT', single_role: false, altitude_band: 'medium', detection_domains: { visual: 0.18, infrared: 0.15, radar: 0.52, passive_rf: 0.10, acoustic: 0.05 }, rcs_profile: 'high', illumination_sensitivity: 'moderate', notes: 'Recently transferred. Western avionics integration. Conventional profile.' },
+          { id: 'BAYRAKTAR', name: 'Bayraktar TB2', nation: 'UA', nato_name: 'Bayraktar', type: 'uav', role: 'ATTACK / ISR', secondary_role: null, single_role: true, altitude_band: 'medium', detection_domains: { visual: 0.28, infrared: 0.18, radar: 0.36, passive_rf: 0.12, acoustic: 0.06 }, rcs_profile: 'low', illumination_sensitivity: 'moderate', notes: 'Turkish-built UCAV. Medium altitude. Single role — cannot reclassify.' },
+          { id: 'UJ22', name: 'UJ-22 Airborne', nation: 'UA', nato_name: 'Airborne', type: 'uav', role: 'ATTACK', secondary_role: null, single_role: true, altitude_band: 'low', detection_domains: { visual: 0.42, infrared: 0.18, radar: 0.28, passive_rf: 0.07, acoustic: 0.05 }, rcs_profile: 'low', illumination_sensitivity: 'critical', notes: 'Ukrainian one-way attack drone. Low altitude. Visual domain critical.' }
+        ];
+
+        // ─── DETECTION DOMAIN MODEL ───────────────────────────────────────────────────────────
+        // Clearance computation delegated to clearance-engine.js via window.ClearanceEngine
+
+        // ─── COMPUTE MOON PHASE ───────────────────────────────────────────────────────────────
+        const getMoonPhaseIcon = (date) => {
+          const JD = date.getTime() / 86400000 + 2440587.5;
+          const age = (JD - 2451550.1) % 29.53;
+          if (age < 1.85) return '🌑';
+          if (age < 7.38) return '🌒';
+          if (age < 9.22) return '🌓';
+          if (age < 14.77) return '🌔';
+          if (age < 16.61) return '🌕';
+          if (age < 22.15) return '🌖';
+          if (age < 23.99) return '🌗';
+          return '🌘';
+        };
+
+        const isNightHour = (hour, lat, lon, tzOffset) => {
+          const date = new Date();
+          const offsetHours = tzOffset || -(date.getTimezoneOffset() / 60);
+          try {
+            const twilight = getCivilTwilightHours(date, lat || 50, lon || 30, offsetHours);
+            if (twilight.sunsetCivilEnd > twilight.sunriseCivilBegin) {
+              return hour >= twilight.sunsetCivilEnd || hour < twilight.sunriseCivilBegin;
+            } else {
+              return hour >= twilight.sunsetCivilEnd && hour < twilight.sunriseCivilBegin;
+            }
+          } catch {
+            return hour >= 18 || hour < 6;
+          }
+        };
+
         // ─── PIXEL ART WEATHER ICONS ───────────────────────────────────────────────────────
-        const RetroWeatherIcon = ({ type }) => {
-          const black = "#000000", white = "#ffffff", darkGray = "#808080", yellow = "#ffff00", blue = "#000080";
+        const RetroWeatherIcon = ({ type, hour = null, isNight = false, moonPhase = null }) => {
+          const black = "#000000", white = "#ffffff", darkGray = "#808080", yellow = "#ffff00", blue = "#000080", lightGray = "#c0c0c0";
+
+          // During night hours, show moon phase icon (with optional secondary weather icon)
+          if (isNight && moonPhase) {
+            return (
+              <div className="flex items-center justify-center text-2xl">
+                <span>{moonPhase}</span>
+                {type !== 'CLEAR' && <span className="text-sm ml-0.5" style={{fontSize: '10px'}}>{type === 'CLOUDY' ? '☁' : type === 'STORM' ? '⚡' : type === 'WINDY' ? '💨' : ''}</span>}
+              </div>
+            );
+          }
+
           if (type === 'CLEAR') return (
             <svg viewBox="0 0 32 32" className="w-full h-full drop-shadow-sm" shapeRendering="crispEdges">
               <path d="M10,10 L22,10 L22,22 L10,22 Z" fill={yellow} stroke={black} strokeWidth="1"/>
@@ -281,6 +383,31 @@
         }
 
         // ─── SUITABILITY PANEL COMPONENT (COMPLETE) ──────────────────────────────────────────
+        // Simple error boundary for debugging render issues
+        class ErrorBoundary extends React.Component {
+          constructor(props) {
+            super(props);
+            this.state = { error: null };
+          }
+          static getDerivedStateFromError(error) {
+            return { error };
+          }
+          componentDidCatch(error, info) {
+            console.error('ErrorBoundary caught', error, info);
+          }
+          render() {
+            if (this.state.error) {
+              return (
+                <div className="p-8 text-red-600 bg-white">
+                  <div className="font-bold">An error occurred:</div>
+                  <div>{this.state.error.message}</div>
+                </div>
+              );
+            }
+            return this.props.children;
+          }
+        }
+
         function SuitabilityPanel({ civilianMode = false, assetClearanceData = null, hourlyData = [], selectedHour = 0, onHourChange = () => {}, timeMode = 'UTC', activeCountry = 'ALL', targetLocation = { name: 'KYIV', country: 'UA' }, getAssetDataForHour = null }) {
           const [selectedHourLocal, setSelectedHourLocal] = useState(selectedHour);
           const [now, setNow] = useState(new Date());
@@ -653,6 +780,13 @@
             iconType = (primaryBlocker && primaryBlocker.includes("WIND")) ? 'WINDY' : 'CLOUDY';
           }
 
+          // Compute moon phase and check if current hour is night
+          const offsetHours = -(now.getTimezoneOffset() / 60);
+          // Use the actual UTC hour from hourlyData, not the array index
+          const utcHour = (currentData && currentData.time) ? parseInt(currentData.time.split(':')[0]) : selectedHourLocal;
+          const isCurrentHourNight = isNightHour(utcHour, targetLocation.lat || 50, targetLocation.lon || 30, offsetHours);
+          const moonPhase = getMoonPhaseIcon(now);
+
           let conditionText = "CLEAR";
           if (iconType === 'CLOUDY') conditionText = "OVERCAST";
           if (iconType === 'STORM') conditionText = "STORMY";
@@ -661,18 +795,56 @@
           let tacticalSummary = "";
           const limiterStr = t(primaryBlocker || secondaryBlocker || "WEATHER");
 
-          if (currentData.status === 'green') {
-            tacticalSummary = civilianMode
-              ? "Clear skies and calm conditions. Excellent flying weather for all aircraft."
-              : "Conditions nominal. Full package cleared. No degradation expected in current window.";
-          } else if (currentData.status === 'amber') {
-            tacticalSummary = civilianMode
-              ? `Mixed conditions. ${capitalize(limiterStr)} limiting some aircraft. Camera and sensor visibility may be reduced.`
-              : `Marginal conditions. ${capitalize(limiterStr)} reducing flexibility. Expect degraded EO/IR sensor acquisition.`;
+          // prepare rows to render for suitability panel
+          // Ensure `rowsToRender` is always defined before any iteration/use to avoid runtime errors
+          const rowsToRender = useMemo(() => {
+            if (assetClearanceData && Array.isArray(assetClearanceData) && assetClearanceData.length) return assetClearanceData;
+            if (typeof getAssetDataForHour === 'function') {
+              try {
+                return getAssetDataForHour(selectedHourLocal) || [];
+              } catch (e) {
+                console.error('getAssetDataForHour error', e);
+                return [];
+              }
+            }
+            return [];
+          }, [assetClearanceData, getAssetDataForHour, selectedHourLocal]);
+
+          // Get parent category clearance states from rowsToRender
+          const parentClearances = {};
+          rowsToRender.forEach(row => {
+            if (row.type === 'parent') {
+              parentClearances[row.name] = row.netClearance;
+            }
+          });
+
+          // Check clearance states
+          const hasFullyGrounded = Object.values(parentClearances).some(status => status === 'FULLY GROUNDED');
+          const hasPartiallyCleared = Object.values(parentClearances).some(status => status === 'PARTIALLY CLEARED');
+          const groundedCategories = Object.entries(parentClearances).filter(([_, status]) => status === 'FULLY GROUNDED').map(([name]) => name);
+          const partialCategories = Object.entries(parentClearances).filter(([_, status]) => status === 'PARTIALLY CLEARED').map(([name]) => name);
+          const allCleared = Object.values(parentClearances).every(status => status === 'CLEARED');
+
+          // Determine primary friction driver for the summary
+          let frictionDriver = '';
+          if (currentData.illumination >= 50) frictionDriver = 'ILLUM';
+          else if (currentData.windGust > 15) frictionDriver = 'WIND';
+          else if (currentData.rain > 0) frictionDriver = 'PRECIP';
+
+          // Generate summary incorporating clearance outcomes
+          if (hasFullyGrounded) {
+            const catList = groundedCategories.join(' and ').toLowerCase();
+            const driverText = frictionDriver === 'ILLUM' ? ' High lunar exposure limiting low-observable profiles.' : frictionDriver === 'WIND' ? ' Wind gusts reducing rotary and low-level flexibility.' : frictionDriver === 'PRECIP' ? ' Active precipitation degrading sensor acquisition.' : '';
+            tacticalSummary = `Conditions restricting ${catList}.${driverText}`;
+          } else if (hasPartiallyCleared) {
+            const catList = partialCategories.join(' and ').toLowerCase();
+            const driverText = frictionDriver === 'ILLUM' ? ' High lunar exposure limiting low-observable profiles.' : frictionDriver === 'WIND' ? ' Wind gusts reducing rotary and low-level flexibility.' : frictionDriver === 'PRECIP' ? ' Active precipitation degrading sensor acquisition.' : '';
+            tacticalSummary = `${capitalize(catList)} operating under reduced clearance.${driverText}`;
+          } else if (allCleared) {
+            const driverText = frictionDriver === 'ILLUM' ? ' High lunar exposure limiting low-observable profiles.' : frictionDriver === 'WIND' ? ' Wind gusts reducing rotary and low-level flexibility.' : frictionDriver === 'PRECIP' ? ' Active precipitation degrading sensor acquisition.' : '';
+            tacticalSummary = civilianMode ? `Clear skies and calm conditions. Full package cleared.${driverText}` : `Conditions nominal. Full package cleared.${driverText}`;
           } else {
-            tacticalSummary = civilianMode
-              ? `Poor weather. ${capitalize(limiterStr)} grounds helicopters and drones. Fighter jets face significant operational risks.`
-              : `Severe degradation. ${capitalize(limiterStr)} precludes rotary/UAV ops. Target acquisition probability critically low.`;
+            tacticalSummary = civilianMode ? `Mixed conditions. ${capitalize(limiterStr)} limiting some aircraft.` : `Marginal conditions. ${capitalize(limiterStr)} reducing flexibility.`;
           }
 
           const cloudStat = constraints.cloud.val > 3000 ? {c: '#16a34a', t: 'CLEAR'} : constraints.cloud.val >= 1000 ? {c: '#ca8a04', t: 'MARGINAL'} : {c: '#dc2626', t: 'EXCEEDED'};
@@ -681,10 +853,6 @@
           const illVal = currentData.illumination || 40;
           const illStat = illVal < 25 ? {c: '#16a34a', t: 'DARK'} : illVal <= 50 ? {c: '#ca8a04', t: 'PARTIAL'} : {c: '#dc2626', t: 'ATTACKER-FAV'};
 
-          const rowsToRender = useMemo(() =>
-            getAssetDataForHour ? getAssetDataForHour(selectedHourLocal) : (assetClearanceData || []),
-            [selectedHourLocal, getAssetDataForHour]
-          );
 
           const handleHourChange = (hour) => {
             setSelectedHourLocal(hour);
@@ -725,7 +893,7 @@
                         {/* Icon & Condition Layout */}
                         <div className="flex items-center justify-between mt-2 px-1">
                           <div className="relative w-[50px] h-[50px] border-2 border-[#808080] border-b-white border-r-white bg-[#008080] p-[5px] shadow-[inset_1px_1px_3px_rgba(0,0,0,0.5)] shrink-0">
-                            <RetroWeatherIcon type={iconType} />
+                            <RetroWeatherIcon type={iconType} hour={selectedHourLocal} isNight={isCurrentHourNight} moonPhase={moonPhase} />
                           </div>
 
                           <div className="flex flex-col items-end overflow-hidden">
@@ -1138,6 +1306,10 @@
         function IWEDADashboard() {
           const [activeCategory, setActiveCategory] = useState('ALL');
           const [activeCountry, setActiveCountry] = useState('');
+          // log country selection for debugging
+          useEffect(() => {
+            if(activeCountry) console.log('Active country set to', activeCountry);
+          }, [activeCountry]);
           const [plainEnglish, setPlainEnglish] = useState(false);
           const [isFetching, setIsFetching] = useState(false);
           const [apiStatus, setApiStatus] = useState('CONNECTED');
@@ -1406,135 +1578,134 @@
           };
 
           const computeCoverAssist = (asset, fc, baseStatus, baseReason) => {
-            // Cloud suppression logic for illumination penalty relief
-            // Returns { assist: string, upgradedStatus: string, upgradedReason: string }
-            // or null if cloud cover doesn't apply to this platform
+            try {
+              // Cloud suppression logic - ONLY applies to visual-primary platforms
+              // Returns { assist: string } or null if N/A
+              // Radar-primary platforms: cloud cover is irrelevant to detection domain
 
-            const sensitivity = getIlluminationSensitivity(asset);
-            if (sensitivity === 'LOW') return null; // N/A for GPS-guided, cruise missiles
+              const platformEntry = window.ClearanceEngine.DOMAIN_LOOKUP[asset.id];
+              if (!platformEntry || platformEntry.visualWt < 0.15) return null; // N/A for radar-primary platforms
 
-            const cloud = fc ? (fc.cloudCover || fc.cloud || 0) : 0;
-            const illum = fc ? (fc.illumination || fc.illum || 0) : 0;
+              const cloud = fc ? (fc.cloudCover || fc.cloud || 0) : 0;
+              const illum = fc ? (fc.illumination || fc.illum || 0) : 0;
 
-            // Only relevant if illumination is high (>60% = ATTACKER-FAV)
-            if (illum <= 60) return null; // N/A if not high illumination
+              // Only relevant if illumination is high (>60% = ATTACKER-FAV)
+              if (illum <= 60) return null; // N/A if not high illumination
 
-            let assist = null;
-            if (cloud >= 70) assist = 'STRONG'; // Cloud ≥70%: strong suppression
-            else if (cloud >= 40 && cloud < 70) assist = 'PARTIAL'; // 40-69%: partial
-            else if (cloud < 40) assist = 'INSUFFICIENT'; // <40%: insufficient
+              let assist = null;
+              if (cloud >= 70) assist = 'STRONG'; // Cloud ≥70%: strong suppression
+              else if (cloud >= 40 && cloud < 70) assist = 'PARTIAL'; // 40-69%: partial
+              else if (cloud < 40) assist = 'INSUFFICIENT'; // <40%: insufficient
 
-            if (!assist) return null;
-
-            // If base status is RED due to illumination, check if cloud can upgrade it
-            let upgradedStatus = baseStatus;
-            let upgradedReason = baseReason;
-
-            // Rule: If grounded purely due to illumination AND clouds provide PARTIAL or STRONG suppression → upgrade to AMBER/MARGINAL
-            if (baseStatus === 'RED' && baseReason.includes('ILLUM')) {
-              if (assist === 'STRONG') {
-                upgradedStatus = 'AMBER';
-                upgradedReason = plainEnglish ? 'Moon suppressed (cloud cover)' : 'ILLUM SUPPRESSED';
-              } else if (assist === 'PARTIAL') {
-                upgradedStatus = 'AMBER';
-                upgradedReason = plainEnglish ? 'Moon suppressed (partial cloud)' : 'ILLUM SUPPRESSED';
-              }
+              return assist ? { assist } : null;
+            } catch (e) {
+              console.error('computeCoverAssist error', e);
+              return null;
             }
-
-            return { assist, upgradedStatus, upgradedReason };
-          };
+          }
 
           const evalCell = useCallback((asset, fc) => {
-            if (!fc) return { status:'GREY', reason:'NO DATA', isFallback:false, lowCf:false };
-            const isSnow = fc.precipType === 'SNOW' || fc.precipType === 'FZRA';
-            const activeWind = Math.max(fc.wind, fc.gust);
-            const windLim = (asset.cat === 'ROTARY' && isSnow) ? ((asset.thresholds && asset.thresholds.wind) || 99) - 5 : ((asset.thresholds && asset.thresholds.wind) || 99);
-            const effRain = (asset.type === 'MUNITION_LGB' && isSnow) ? fc.rain * 2 : fc.rain;
-            const dop = fc.gpsDop;
-            const lowCf = fc.cf < 65;
+            try {
+              if (!fc) return { status:'GREY', reason:'NO DATA', isFallback:false, lowCf:false, role:'—' };
 
-            let status = 'GREEN', reason = '', isFallback = false;
-            let worstMarginPct = 100;
+              const isSnow = fc.precipType === 'SNOW' || fc.precipType === 'FZRA';
+              const activeWind = Math.max(fc.wind, fc.gust);
+              const windLim = (asset.cat === 'ROTARY' && isSnow) ? ((asset.thresholds && asset.thresholds.wind) || 99) - 5 : ((asset.thresholds && asset.thresholds.wind) || 99);
+              const effRain = (asset.type === 'MUNITION_LGB' && isSnow) ? fc.rain * 2 : fc.rain;
+              const dop = fc.gpsDop;
+              const lowCf = fc.cf < 65;
 
-            const checkViolation = (val, limit, label) => {
-              if (limit === undefined || limit === null) return;
-              const violated = val >= limit;
-              const marginPct = Math.abs((val - limit) / limit * 100);
-              if (violated) {
-                if (marginPct < worstMarginPct) worstMarginPct = marginPct;
-                const adjStatus = uncertaintyAdjustedStatus(true, marginPct, uncertainty);
-                if (adjStatus === 'RED' && status !== 'RED') { status = 'RED'; reason = label; }
-                else if (adjStatus === 'AMBER' && status === 'GREEN') { status = 'AMBER'; reason = label + (selDay >= 2 ? ' [~FCST]' : ''); }
+              // Get platform detection domain info via new engine
+              const lookupEntry = window.ClearanceEngine.DOMAIN_LOOKUP[asset.id];
+              const platformRole = lookupEntry ? lookupEntry.primaryDomain : 'GENERIC';
+
+              // Compute net clearance probability (0-1)
+              let netScore = window.ClearanceEngine.computeNetClearance(asset.id, fc.illum || 40, fc.cloudCover || 50, false, true);
+              let status = window.ClearanceEngine.scoreToStatus(netScore);
+              let clearanceLabel = window.ClearanceEngine.scoreToClearance(netScore);
+              let reason = clearanceLabel;
+
+              // Hard constraints still apply (safety-critical)
+              let isFallback = false;
+              let hardFailReason = '';
+
+              const checkViolation = (val, limit, label) => {
+                if (limit === undefined || limit === null) return false;
+                if (val >= limit) { hardFailReason = label; return true; }
+                return false;
+              };
+
+              const checkViolationLow = (val, limit, label) => {
+                if (limit === undefined || limit === null) return false;
+                if (val < limit) { hardFailReason = label; return true; }
+                return false;
+              };
+
+              // Check hard constraints
+              if (checkViolation(dop, (asset.thresholds && asset.thresholds.gpsDop), plainEnglish ? `GPS Weak` : `DOP`)) status = 'RED';
+              else if (checkViolationLow(fc.visSM, (asset.thresholds && asset.thresholds.vis), plainEnglish ? `Blind` : `VIS`)) status = 'RED';
+              else if (checkViolationLow(fc.ceil, (asset.thresholds && asset.thresholds.ceil), plainEnglish ? `Clouds` : `CEIL`)) status = 'RED';
+              else if (checkViolation(effRain, (asset.thresholds && asset.thresholds.rain), plainEnglish ? `Precip` : `PRECIP`)) status = 'RED';
+              else if (checkViolation(activeWind, windLim, plainEnglish ? `Winds` : `WND`)) status = 'RED';
+
+              // Special cases
+              if (asset.id === 'B2' && isSnow && fc.rain > 0) {
+                status = 'RED'; hardFailReason = plainEnglish ? 'LO degraded (Snow)' : 'SNOW ON LO COAT';
               }
-            };
 
-            const checkViolationLow = (val, limit, label) => {
-              if (limit === undefined || limit === null) return;
-              const violated = val < limit;
-              const marginPct = Math.abs((val - limit) / limit * 100);
-              if (violated) {
-                if (marginPct < worstMarginPct) worstMarginPct = marginPct;
-                const adjStatus = uncertaintyAdjustedStatus(true, marginPct, uncertainty);
-                if (adjStatus === 'RED' && status !== 'RED') { status = 'RED'; reason = label; }
-                else if (adjStatus === 'AMBER' && status === 'GREEN') { status = 'AMBER'; reason = label + (selDay >= 2 ? ' [~FCST]' : ''); }
+              // If hard constraint violated, use that reason; otherwise use detection domain assessment
+              if (hardFailReason) {
+                reason = hardFailReason;
+              } else {
+                reason = clearanceLabel;
+
+                // For visual-primary platforms at high illumination, indicate the constraint
+                if (lookupEntry && lookupEntry.visualWt > 0.20 && (fc.illum || 0) > 60) {
+                  reason += plainEnglish ? ' (High Moon)' : ' (ILLUM)';
+                }
               }
-            };
 
-            checkViolation(dop,       (asset.thresholds && asset.thresholds.gpsDop), plainEnglish ? `GPS Weak (${dop.toFixed(1)})` : `DOP ${dop.toFixed(1)}`);
-            checkViolationLow(fc.visSM, (asset.thresholds && asset.thresholds.vis),  plainEnglish ? `Blind: ${fc.visDisp}SM` : `VIS ${fc.visDisp}SM`);
-            checkViolationLow(fc.ceil,  (asset.thresholds && asset.thresholds.ceil), plainEnglish ? `Clouds (${fc.ceil}ft)` : `CEIL ${fc.ceil}ft`);
-            checkViolation(effRain,   (asset.thresholds && asset.thresholds.rain),   plainEnglish ? `Precip ${effRain.toFixed(2)}"` : `PRECIP ${effRain.toFixed(2)}"`);
-            checkViolation(activeWind, windLim,                plainEnglish ? `Winds ${activeWind}kt` : `WND ${activeWind}KT`);
-
-            if (asset.id === 'B2' && isSnow && fc.rain > 0) {
-              status = 'RED'; reason = plainEnglish ? 'LO degraded (Snow)' : 'SNOW ON LO COAT';
-            }
-
-            if ((asset.thresholds && asset.thresholds.illum) !== undefined) {
-              if (fc.illum >= (asset.thresholds.illum) + 10 && status !== 'RED') { status='RED'; reason = plainEnglish ? `Moon ${fc.illum}%` : `ILLUM ${fc.illum}%`; }
-              else if (fc.illum >= (asset.thresholds.illum) && status === 'GREEN') { status='AMBER'; reason = plainEnglish ? `Moon ${fc.illum}%` : `ILLUM ${fc.illum}%`; }
-            }
-
-            if (status === 'RED' && asset.fallback) {
-              const opticalOnlyFail = reason.includes('VIS') || reason.includes('CEIL') || reason.includes('PRECIP') || reason.includes('Precip');
-              const isGuidedMissile = (asset.type && (asset.type.includes('MUNITION_CRUISE') || asset.type.includes('MUNITION_BALLISTIC') || asset.type.includes('MUNITION_GLIDE') || asset.type.includes('MUNITION_GPS')));
-              if (opticalOnlyFail && isGuidedMissile) {
-                status = 'AMBER'; isFallback = true;
-                reason = (plainEnglish ? 'FALLBACK: ' : 'FALLBACK: ') + asset.fallback.split('—')[0].trim().substring(0,22);
+              // Fallback logic for guided missiles with optical-only failure
+              if (status === 'RED' && asset.fallback) {
+                const opticalOnlyFail = hardFailReason.includes('VIS') || hardFailReason.includes('CEIL') || hardFailReason.includes('Clouds');
+                const isGuidedMissile = (asset.type && (asset.type.includes('MUNITION_CRUISE') || asset.type.includes('MUNITION_BALLISTIC') || asset.type.includes('MUNITION_GLIDE') || asset.type.includes('MUNITION_GPS')));
+                if (opticalOnlyFail && isGuidedMissile) {
+                  status = 'AMBER'; isFallback = true;
+                  reason = (plainEnglish ? 'FALLBACK: ' : 'FALLBACK: ') + asset.fallback.split('—')[0].trim().substring(0,22);
+                }
               }
+
+              // Asymmetric risk flag
+              if ((status === 'RED' || status === 'AMBER') && asset.asym === 'FAVORS_ATTACKER') {
+                reason += ' ★';
+              }
+
+              // Forecast confidence flags
+              if (status !== 'GREEN' && selDay >= 4) reason += ' [LOW~CF]';
+              else if (status !== 'GREEN' && selDay >= 2) reason += ' [~CF]';
+
+              if (status === 'GREEN') reason = plainEnglish ? 'Clear' : 'OPTIMAL';
+              if (lowCf && status !== 'GREY') reason += (status === 'GREEN' ? ' [~]' : '');
+
+              return { status, reason, isFallback, lowCf, role: platformRole, clearance: clearanceLabel };
+            } catch (e) {
+              console.error('evalCell error', asset, fc, e);
+              return { status:'GREY', reason:'ERROR', isFallback:false, lowCf:false, role:'—', clearance:'ERROR' };
             }
-
-            if ((status === 'RED' || status === 'AMBER') && asset.asym === 'FAVORS_ATTACKER') {
-              reason += ' ★';
-            }
-
-            if (status !== 'GREEN' && selDay >= 4) reason += ' [LOW~CF]';
-            else if (status !== 'GREEN' && selDay >= 2) reason += ' [~CF]';
-
-            if (status === 'GREEN') reason = plainEnglish ? 'Clear' : 'OPTIMAL';
-            if (lowCf && status !== 'GREY') reason += (status === 'GREEN' ? ' [~]' : '');
-
-            // Apply illumination risk modifier (only downgrades or adds flags, does not upgrade GREEN)
-            if (status !== 'RED') {
-              const illumModified = applyIlluminationModifier(asset, fc, status, reason);
-              status = illumModified.status;
-              reason = illumModified.reason;
-            }
-
-            return { status, reason, isFallback, lowCf };
           }, [plainEnglish, uncertainty, selDay]);
 
           // --- GENERATE ASSET CLEARANCE PROFILE (Live Data Mapping) ---
           const generateAssetClearanceProfile = useCallback(() => {
-            const dayHours = (allData && allData[selDay]) || [];
-            const winDef = TACTICAL_WINDOWS[selWindow];
-            const windowHours = winDef ? winDef.hours.map(h => dayHours.find(fc => fc.utcHour === h)).filter(Boolean) : [];
+            try {
+              const dayHours = (allData && allData[selDay]) || [];
+              const winDef = TACTICAL_WINDOWS[selWindow];
+              const windowHours = winDef ? winDef.hours.map(h => dayHours.find(fc => fc.utcHour === h)).filter(Boolean) : [];
 
-            if (!dayHours || dayHours.length === 0 || !windowHours || windowHours.length === 0) return [];
+              if (!dayHours || dayHours.length === 0 || !windowHours || windowHours.length === 0) return [];
 
-            const nationAssets = ASSETS.filter(a => a.country === activeCountry);
-            const bestHour = windowHours[selHour];
-            if (!bestHour) return [];
+              const nationAssets = ASSETS.filter(a => a.country === activeCountry);
+              const bestHour = windowHours[selHour];
+              if (!bestHour) return [];
 
             const categoryGroups = {
               'F-JET': nationAssets.filter(a => a.cat === 'STRIKE'),
@@ -1641,6 +1812,7 @@
                   parentId: parentId,
                   type: 'child',
                   name: `↳ ${plainEnglish ? asset.civ : asset.name}`,
+                  role: result.role,
                   status: plainEnglish ? (childStatus === 'CLEARED' ? 'FAVORABLE' : childStatus === 'RESTRICTED' ? 'MIXED' : 'UNFAVORABLE') : childStatus,
                   count: upgradedStatus === 'GREEN' ? '1 OF 1 CLEARED' : '0 OF 1 CLEARED',
                   limiter: frictionDriver,
@@ -1654,17 +1826,22 @@
             });
 
             return advancedAssets;
+            } catch (e) {
+              console.error('generateAssetClearanceProfile error', e);
+              return [];
+            }
           }, [allData, selDay, selWindow, selHour, activeCountry, evalCell, plainEnglish]);
 
           const assetClearanceData = useMemo(() => generateAssetClearanceProfile(), [generateAssetClearanceProfile]);
 
           // --- GENERATE ASSET CLEARANCE FOR ANY HOUR INDEX (used by SuitabilityPanel) ---
           const generateAssetClearanceForHourIndex = useCallback((hourIndex) => {
-            const dayHours = (allData && allData[selDay]) || [];
-            const fc = dayHours[hourIndex];
-            if (!fc) return [];
+            try {
+              const dayHours = (allData && allData[selDay]) || [];
+              const fc = dayHours[hourIndex];
+              if (!fc) return [];
 
-            const nationAssets = ASSETS.filter(a => a.country === activeCountry);
+              const nationAssets = ASSETS.filter(a => a.country === activeCountry);
 
             const categoryGroups = {
               'F-JET': nationAssets.filter(a => a.cat === 'STRIKE'),
@@ -1771,6 +1948,7 @@
                   parentId: parentId,
                   type: 'child',
                   name: `↳ ${plainEnglish ? asset.civ : asset.name}`,
+                  role: result.role,
                   status: plainEnglish ? (childStatus === 'CLEARED' ? 'FAVORABLE' : childStatus === 'RESTRICTED' ? 'MIXED' : 'UNFAVORABLE') : childStatus,
                   count: upgradedStatus === 'GREEN' ? '1 OF 1 CLEARED' : '0 OF 1 CLEARED',
                   limiter: frictionDriver,
@@ -1784,6 +1962,10 @@
             });
 
             return advancedAssets;
+            } catch (e) {
+              console.error('generateAssetClearanceForHourIndex error', e);
+              return [];
+            }
           }, [allData, selDay, activeCountry, evalCell, plainEnglish, computeCoverAssist]);
 
           const cellBg = (result, selected) => {
@@ -2170,8 +2352,9 @@
                 <div className="flex flex-col gap-1 mt-2 mb-1">
                   <div className="flex gap-2 items-center flex-wrap px-1">
                     <span className="font-bold text-[10px] text-gray-700 w-12">TYPE:</span>
-                    {[['ALL','ALL ASSETS'],['STRIKE','STRIKE'],['UAV','UNMANNED'],['ROTARY','ROTARY'],['SUPPORT','ISR/SUPPORT'],['WEAPONS','MUNITIONS']].map(([id,label])=>{
+                    {[['ALL','ALL ASSETS','ALL EQUIPMENT'],['STRIKE','STRIKE','COMBAT JETS'],['UAV','UNMANNED','DRONES'],['ROTARY','ROTARY','HELICOPTERS'],['SUPPORT','ISR/SUPPORT','RECONNAISSANCE'],['WEAPONS','MUNITIONS','MISSILES & BOMBS']].map(([id,militaryLabel,civilianLabel])=>{
                       const isSel = activeCategory === id;
+                      const label = plainEnglish ? civilianLabel : militaryLabel;
                       return (
                         <button key={id} onClick={()=>setActiveCategory(id)} className={`px-2 py-0.5 font-bold text-[10px] border-2 ${isSel ? 'bg-white border-t-gray-600 border-l-gray-600 border-b-transparent border-r-white' : 'bg-[#c0c0c0] border-t-white border-l-white border-b-gray-600 border-r-gray-600 hover:bg-gray-200'}`}>
                           {label}
@@ -2229,9 +2412,9 @@
                           <tr key={asset.id} className="border-b border-gray-400 hover:bg-blue-100 group">
                             <td className={`border-r border-gray-400 p-1.5 bg-[#ece9d8] border-l-4 ${getCountryBorderColor(asset.country)}`}>
                               <div className="font-bold flex items-center justify-between">
-                                <span className="truncate pr-2">{civilianMode ? asset.civ : asset.name}</span>
+                                <span className="truncate pr-2">{plainEnglish ? asset.civ : asset.name}</span>
                                 <span
-                                  onClick={(e) => { e.stopPropagation(); setTooltip({x:e.clientX, y:e.clientY, text:asset.src, name:civilianMode ? asset.civ : asset.name, conf:asset.conf}); }}
+                                  onClick={(e) => { e.stopPropagation(); setTooltip({x:e.clientX, y:e.clientY, text:asset.src, name:plainEnglish ? asset.civ : asset.name, conf:asset.conf}); }}
                                   className={`text-white text-[8px] px-1 py-0.5 cursor-help font-bold shrink-0 border border-white/30 hover:scale-105 ${getConfidenceBadgeColor(asset.conf)}`}
                                   title="Click to view source"
                                 >
@@ -2239,7 +2422,7 @@
                                 </span>
                               </div>
                               <div className="text-[9px] text-gray-600 flex justify-between items-center mt-0.5">
-                                <span className="truncate pr-1">{civilianMode ? asset.civ : asset.type}</span>
+                                <span className="truncate pr-1">{plainEnglish ? asset.civ : asset.type}</span>
                                 <div className="flex gap-1 items-center shrink-0">
                                    {asset.asym === 'FAVORS_ATTACKER' && <span className="text-purple-600 font-bold" title="Weather asymmetric: Favors Attacker">★</span>}
                                    <span className="font-bold text-black">{asset.country}</span>
@@ -2418,7 +2601,11 @@
           );
         }
 
-        ReactDOM.createRoot(document.getElementById('root')).render(<IWEDADashboard />);
+        ReactDOM.createRoot(document.getElementById('root')).render(
+          <ErrorBoundary>
+            <IWEDADashboard />
+          </ErrorBoundary>
+        );
     </script>
 </body>
 </html>
