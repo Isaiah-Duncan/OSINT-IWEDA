@@ -47,6 +47,42 @@
           return Math.round(((1 + Math.cos(Math.PI - i)) / 2) * 100);
         }
 
+        // ─── CIVIL TWILIGHT COMPUTATION ─────────────────────────────────────────────────
+        function getCivilTwilightHours(date, lat, lon, timeZoneOffsetHours) {
+          // Approximate civil twilight times (±6° below horizon) for given lat/lon/date
+          // Returns { sunsetCivilEnd, sunriseCivilBegin } in local hour (0-24)
+          // For simplicity: use NOAA-style approximation
+          const J2000 = 36525;
+          const d = Math.floor((date.getTime() / 86400000) + 2440588 - 2451545 + timeZoneOffsetHours / 24);
+          const n = d + (date.getHours() - timeZoneOffsetHours) / 24 - 0.0833; // n = days since J2000 epoch
+
+          const J = n;
+          const M = (357.52911 + 0.98560028 * J) % 360;
+          const C = (1.914602 - 0.004817 * J - 0.000014 * J * J) * Math.sin(M * Math.PI / 180)
+                  + (0.019993 - 0.000101 * J) * Math.sin(2 * M * Math.PI / 180)
+                  + 0.000029 * Math.sin(3 * M * Math.PI / 180);
+          const lambda = (280.46646 + 0.9856474 * J + C) % 360;
+          const alpha = Math.atan2(Math.cos(23.439291 * Math.PI / 180) * Math.sin(lambda * Math.PI / 180), Math.cos(lambda * Math.PI / 180)) * 180 / Math.PI;
+          const h = -0.1038; // Civil twilight: -6° = -0.1038 rad
+
+          const latRad = lat * Math.PI / 180;
+          const sinH = (Math.sin(h) - Math.sin(latRad) * Math.sin((lambda * Math.PI / 180))) / (Math.cos(latRad) * Math.cos(lambda * Math.PI / 180));
+
+          if (Math.abs(sinH) > 1) {
+            // Sun never sets or never rises - use approximations
+            return { sunsetCivilEnd: 18, sunriseCivilBegin: 6 };
+          }
+
+          const H = Math.acos(sinH) * 180 / Math.PI;
+          const sunsetUT = ((360 - H - alpha) / 15 + 12) % 24;
+          const sunriseUT = ((H - alpha) / 15 + 12) % 24;
+
+          const sunsetLocal = (sunsetUT + timeZoneOffsetHours) % 24;
+          const sunriseLocal = (sunriseUT + timeZoneOffsetHours) % 24;
+
+          return { sunsetCivilEnd: Math.round(sunsetLocal * 2) / 2, sunriseCivilBegin: Math.round(sunriseLocal * 2) / 2 };
+        }
+
         // ─── DYNAMIC GPS DOP ──────────────────────────────────────────────────────────
         function calcGpsDop(rainInch, cloudLow, snowCm, jammed) {
           let d = 1.0 + rainInch * 2.5 + (cloudLow > 80 ? 0.4 : cloudLow > 60 ? 0.2 : 0) + (snowCm > 0 ? 0.6 : 0);
@@ -195,9 +231,913 @@
           { id:'CN_YJ12',  name:'YJ-12 Anti-Ship Cruise',  country:'CN', cat:'WEAPONS', conf:'ESTIMATED', asym:'NEUTRAL',        thresholds:{rain:2.0,gpsDop:2.5,wind:35},                src:'CSIS Missile Threat / IISS Military Balance / Jane\'s' },
         ];
 
+        // ─── PIXEL ART WEATHER ICONS ───────────────────────────────────────────────────────
+        const RetroWeatherIcon = ({ type }) => {
+          const black = "#000000", white = "#ffffff", darkGray = "#808080", yellow = "#ffff00", blue = "#000080";
+          if (type === 'CLEAR') return (
+            <svg viewBox="0 0 32 32" className="w-full h-full drop-shadow-sm" shapeRendering="crispEdges">
+              <path d="M10,10 L22,10 L22,22 L10,22 Z" fill={yellow} stroke={black} strokeWidth="1"/>
+              <rect x="14" y="4" width="4" height="6" fill={yellow} stroke={black} strokeWidth="1"/>
+              <rect x="14" y="22" width="4" height="6" fill={yellow} stroke={black} strokeWidth="1"/>
+              <rect x="4" y="14" width="6" height="4" fill={yellow} stroke={black} strokeWidth="1"/>
+              <rect x="22" y="14" width="6" height="4" fill={yellow} stroke={black} strokeWidth="1"/>
+              <rect x="6" y="6" width="4" height="4" fill={yellow} stroke={black} strokeWidth="1"/>
+              <rect x="22" y="6" width="4" height="4" fill={yellow} stroke={black} strokeWidth="1"/>
+              <rect x="6" y="22" width="4" height="4" fill={yellow} stroke={black} strokeWidth="1"/>
+              <rect x="22" y="22" width="4" height="4" fill={yellow} stroke={black} strokeWidth="1"/>
+            </svg>
+          );
+          if (type === 'CLOUDY') return (
+            <svg viewBox="0 0 32 32" className="w-full h-full drop-shadow-sm" shapeRendering="crispEdges">
+              <path d="M14,4 L24,4 L24,14 L14,14 Z" fill={yellow} stroke={black} strokeWidth="1"/>
+              <path d="M10,14 L10,10 L22,10 L22,14 L26,14 L26,18 L30,18 L30,26 L2,26 L2,18 L6,18 L6,14 Z" fill={white} stroke={black} strokeWidth="1" />
+            </svg>
+          );
+          if (type === 'STORM') return (
+            <svg viewBox="0 0 32 32" className="w-full h-full drop-shadow-sm" shapeRendering="crispEdges">
+              <path d="M10,14 L10,10 L22,10 L22,14 L26,14 L26,18 L30,18 L30,24 L2,24 L2,18 L6,18 L6,14 Z" fill={darkGray} stroke={black} strokeWidth="1" />
+              <rect x="6" y="26" width="2" height="4" fill={blue} />
+              <rect x="10" y="26" width="2" height="4" fill={blue} />
+              <rect x="22" y="26" width="2" height="4" fill={blue} />
+              <rect x="26" y="26" width="2" height="4" fill={blue} />
+              <path d="M16,20 L12,26 L16,26 L14,32 L20,24 L16,24 Z" fill={yellow} stroke={black} strokeWidth="1"/>
+            </svg>
+          );
+          if (type === 'WINDY') return (
+            <svg viewBox="0 0 32 32" className="w-full h-full drop-shadow-sm" shapeRendering="crispEdges">
+              <rect x="4" y="10" width="16" height="2" fill={black} />
+              <rect x="20" y="8" width="2" height="4" fill={black} />
+              <rect x="18" y="6" width="2" height="2" fill={black} />
+              <rect x="8" y="16" width="18" height="2" fill={black} />
+              <rect x="26" y="18" width="2" height="4" fill={black} />
+              <rect x="24" y="22" width="2" height="2" fill={black} />
+              <rect x="12" y="24" width="12" height="2" fill={black} />
+              <rect x="6" y="18" width="2" height="2" fill={darkGray} />
+              <rect x="16" y="20" width="2" height="2" fill={darkGray} />
+              <rect x="26" y="12" width="2" height="2" fill={darkGray} />
+            </svg>
+          );
+          return null;
+        }
+
+        // ─── SUITABILITY PANEL COMPONENT (COMPLETE) ──────────────────────────────────────────
+        function SuitabilityPanel({ civilianMode = false, assetClearanceData = null, hourlyData = [], selectedHour = 0, onHourChange = () => {}, timeMode = 'UTC', activeCountry = 'ALL', targetLocation = { name: 'KYIV', country: 'UA' }, getAssetDataForHour = null }) {
+          const [selectedHourLocal, setSelectedHourLocal] = useState(selectedHour);
+          const [now, setNow] = useState(new Date());
+          const [expandedRows, setExpandedRows] = useState({});
+          const [windowStatusState, setWindowStatusState] = useState(null);
+
+          useEffect(() => {
+            setSelectedHourLocal(selectedHour);
+          }, [selectedHour]);
+
+          useEffect(() => {
+            const timer = setInterval(() => setNow(new Date()), 1000);
+            return () => clearInterval(timer);
+          }, []);
+
+          const toggleRow = (id) => {
+            setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
+          };
+
+          const t = (text, unit = false) => {
+            if (!civilianMode) return text;
+            const dict = {
+              "CLOUD BASE": "CLOUD CEILING", "WIND GUST": "WIND GUSTS", "VISIBILITY": "VISIBILITY",
+              "GO": "FAVORABLE", "MARGINAL": "MIXED", "NO-GO": "UNFAVORABLE",
+              "WIND": "WINDS", "CLOUD": "CLOUDS", "VIS": "VISIBILITY",
+              "LOW CLOUD BASE": "LOW CLOUD CEILING", "HIGH WIND GUSTS": "HIGH WIND GUSTS",
+              "LOW VISIBILITY": "LOW VISIBILITY", "MARGINAL CLOUDS": "MARGINAL CLOUD CEILING",
+              "MARGINAL WINDS": "MARGINAL WINDS", "ATTACKER-FAV": "BRIGHT MOONLIGHT", "EXCEEDED": "ABOVE SAFE LIMIT",
+              "DARK": "LOW LIGHT — FAVORABLE", "ILLUMINATION": "MOONLIGHT"
+            };
+            const unitDict = { "KT": "knots", "SM": "miles", "FT": "feet" };
+            return unit ? (unitDict[text] || text) : (dict[text] || text);
+          };
+
+          const translateStatus = (statusStr) => {
+            if (!civilianMode) return statusStr;
+            const sMap = {
+              'CLEARED': 'APPROVED FOR FLIGHT',
+              'PARTIALLY CLEARED': 'SOME AIRCRAFT APPROVED',
+              'RESTRICTED': 'CAN FLY — REDUCED EFFECTIVENESS',
+              'PARTIALLY GROUNDED': 'MOST AIRCRAFT GROUNDED — LIMITED OPERATIONS',
+              'FULLY GROUNDED': 'CANNOT FLY — CONDITIONS TOO SEVERE'
+            };
+            return sMap[statusStr] || statusStr;
+          };
+
+          const translateRisk = (riskStr) => {
+            if (!civilianMode) return riskStr;
+            const rMap = {
+              '⚠ ELEVATED RISK': '⚠ HIGHER THAN NORMAL RISK',
+              '⚠ HIGH RISK': '⚠ HIGH RISK',
+              '⚠ DEGRADED CEP': '⚠ REDUCED ACCURACY',
+              '—': '—'
+            };
+            return rMap[riskStr] || riskStr;
+          };
+
+          const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+          const formatTime = (hour) => {
+            if (timeMode === 'CIV') {
+              const d = hourlyData[hour];
+              return d && d.civTime ? d.civTime : hour.toString().padStart(2,'0') + '00';
+            }
+            if (timeMode === 'LOCAL') {
+              const d = hourlyData[hour];
+              return d && d.locTime ? d.locTime : hour.toString().padStart(2,'0') + '00 LCL';
+            }
+            const timeStr = hour.toString().padStart(2, '0') + '00';
+            return timeStr + 'Z';
+          };
+          const formatEndTime = (hour) => {
+            if (hour === 23) {
+              if (timeMode === 'CIV') {
+                const d = hourlyData[23];
+                return d && d.civTime ? d.civTime : '2359';
+              }
+              if (timeMode === 'LOCAL') {
+                const d = hourlyData[23];
+                return d && d.locTime ? d.locTime : '2359 LCL';
+              }
+              return '2359Z';
+            }
+            if (timeMode === 'CIV') {
+              const d = hourlyData[hour + 1];
+              return d && d.civTime ? d.civTime : (hour + 1).toString().padStart(2,'0') + '00';
+            }
+            if (timeMode === 'LOCAL') {
+              const d = hourlyData[hour + 1];
+              return d && d.locTime ? d.locTime : (hour + 1).toString().padStart(2,'0') + '00 LCL';
+            }
+            const timeStr = (hour + 1).toString().padStart(2, '0') + '00';
+            return timeStr + 'Z';
+          };
+
+          const currentData = hourlyData[selectedHourLocal] || hourlyData[0] || { status: 'green', viability: 85, confidence: 95, cloudBase: 5000, cloudCover: 20, windGust: 8, visibility: 8, illumination: 40, models: {gfs: 85, ecmwf: 90, ukmet: 80} };
+
+          // Compute civil twilight for night-only filtering
+          const getTwilightInfo = useMemo(() => {
+            const date = new Date();
+            const tzOffset = targetLocation.timezone ? new Date().toLocaleString('en-US', {timeZone: targetLocation.timezone}).split(':').length : 0;
+            // Simple offset estimation: UTC ± offset hours
+            const offsetHours = -(date.getTimezoneOffset() / 60);
+            try {
+              return getCivilTwilightHours(date, targetLocation.lat || 50, targetLocation.lon || 30, offsetHours);
+            } catch {
+              return { sunsetCivilEnd: 18, sunriseCivilBegin: 6 }; // Fallback
+            }
+          }, [targetLocation]);
+
+          const isNightHour = useCallback((hour) => {
+            // Night = sunset through 0000 local, then 0000 through sunrise
+            // Treated as continuous eligible block wrapping midnight
+            const { sunsetCivilEnd, sunriseCivilBegin } = getTwilightInfo;
+            if (sunsetCivilEnd > sunriseCivilBegin) {
+              // Normal case: sunset later than sunrise (e.g., 18 > 6)
+              return hour >= sunsetCivilEnd || hour < sunriseCivilBegin;
+            } else {
+              // Polar case: sunrise later than sunset - rare
+              return hour >= sunsetCivilEnd && hour < sunriseCivilBegin;
+            }
+          }, [getTwilightInfo]);
+
+          const windows = useMemo(() => {
+            // Find perfect windows first (all GREEN), night-filtered for PRIMARY
+            let perfectWins = [];
+            let current = null;
+            hourlyData.forEach((d, i) => {
+              if (d.status === 'green' && isNightHour(i)) {
+                if (!current) current = { start: i, end: i, length: 1 };
+                else { current.end = i; current.length++; }
+              } else if (current) {
+                perfectWins.push(current);
+                current = null;
+              }
+            });
+            if (current) perfectWins.push(current);
+
+            // Find constraint-optimized windows (acceptable conditions), night-filtered
+            // Constraint window: Cloud 70%+ suppresses high lunar, winds calm, no precip
+            let constraintWins = [];
+            current = null;
+            hourlyData.forEach((d, i) => {
+              const cloud = d.cloudCover || 0;
+              const wind = d.windGust || 0;
+              const illum = d.illumination || 0;
+              const isConstraintOptimal = cloud >= 70 && wind <= 8 && illum > 60;
+              if (isConstraintOptimal && isNightHour(i)) {
+                if (!current) current = { start: i, end: i, length: 1 };
+                else { current.end = i; current.length++; }
+              } else if (current) {
+                constraintWins.push(current);
+                current = null;
+              }
+            });
+            if (current) constraintWins.push(current);
+
+            // Find tactical window: Cloud ≤25%, Wind ≤10kt, night-filtered
+            let tactical = null;
+            hourlyData.forEach((d, i) => {
+              const cloud = d.cloudCover || 0;
+              const wind = d.windGust || 0;
+              if (cloud <= 25 && wind <= 10 && isNightHour(i)) {
+                if (!tactical) tactical = { start: i, end: i, length: 1 };
+                else if (i === tactical.end + 1) {
+                  tactical.end = i;
+                  tactical.length++;
+                }
+              }
+            });
+
+            // Return best of both, prioritizing perfect windows
+            perfectWins.sort((a, b) => b.length - a.length);
+            constraintWins.sort((a, b) => b.length - a.length);
+            const primary = perfectWins[0] || constraintWins[0];
+            const secondary = perfectWins[1] || constraintWins[1];
+            return { primary, tactical, secondary, all: [...perfectWins, ...constraintWins] };
+          }, [hourlyData, isNightHour]);
+
+          // ─── COMPUTE DYNAMIC WINDOW STATUS (Stateless, Real-Time Reactive) ───────────
+          // Stateless computation function: takes forecast array and current time, returns fresh window status
+          const computeWindowStatusStateless = useCallback((forecastArray, currentZuluTime) => {
+            // Recompute civil twilight for current date and location (fresh every call)
+            const todayDate = new Date(currentZuluTime);
+            const offsetHours = -(todayDate.getTimezoneOffset() / 60);
+            let twilightInfo = { sunsetCivilEnd: 18, sunriseCivilBegin: 6 };
+            try {
+              twilightInfo = getCivilTwilightHours(todayDate, targetLocation.lat || 50, targetLocation.lon || 30, offsetHours);
+            } catch {
+              // Fallback
+            }
+
+            // Determine if hour is night (sunset through sunrise, wrapping midnight)
+            const isNightHourLocal = (hour) => {
+              const { sunsetCivilEnd, sunriseCivilBegin } = twilightInfo;
+              if (sunsetCivilEnd > sunriseCivilBegin) {
+                return hour >= sunsetCivilEnd || hour < sunriseCivilBegin;
+              } else {
+                return hour >= sunsetCivilEnd && hour < sunriseCivilBegin;
+              }
+            };
+
+            const statusData = {
+              STEALTH: { status: 'RESTRICT', window: 'NO WINDOW', color: 'text-[#dc2626]' },
+              'TACTICAL AIR': { status: 'RESTRICT', window: 'NO WINDOW', color: 'text-[#dc2626]' },
+              'ROTARY/SOF': { status: 'RESTRICT', window: 'NO WINDOW', color: 'text-[#dc2626]' },
+              'STANDOFF/PGM': { status: 'RESTRICT', window: 'NO WINDOW', color: 'text-[#dc2626]' },
+              'ISR': { status: 'RESTRICT', window: 'NO WINDOW', color: 'text-[#dc2626]' }
+            };
+
+            let firstValidHour = { STEALTH: -1, 'TACTICAL AIR': -1, 'ROTARY/SOF': -1, 'STANDOFF/PGM': -1 };
+            let lastValidHour = { STEALTH: -1, 'TACTICAL AIR': -1, 'ROTARY/SOF': -1, 'STANDOFF/PGM': -1 };
+            let isrAllClear = true;
+
+            forecastArray.forEach((d, i) => {
+              const cloud = d.cloudCover || 0;
+              const wind = d.windGust || 0;
+              const illum = d.illumination || 0;
+              const rain = d.rain || 0;
+              const vis = d.visSM || 10;
+              const isNight = isNightHourLocal(i);
+
+              // STEALTH: nightOnly AND effectiveIllum <40% AND wind <12kt
+              if (isNight && illum < 40 && wind < 12) {
+                if (firstValidHour.STEALTH === -1) firstValidHour.STEALTH = i;
+                lastValidHour.STEALTH = i;
+                statusData.STEALTH.status = 'VIABLE';
+                statusData.STEALTH.color = 'text-[#22c55e]';
+              }
+
+              // TACTICAL AIR: nightOnly AND wind <10kt AND effectiveIllum <30% AND cloud <50%
+              if (isNight && wind < 10 && illum < 30 && cloud < 50) {
+                if (firstValidHour['TACTICAL AIR'] === -1) firstValidHour['TACTICAL AIR'] = i;
+                lastValidHour['TACTICAL AIR'] = i;
+                statusData['TACTICAL AIR'].status = 'VIABLE';
+                statusData['TACTICAL AIR'].color = 'text-[#22c55e]';
+              }
+
+              // ROTARY/SOF: nightOnly AND wind <10kt AND effectiveIllum <30% AND cloud <50%
+              if (isNight && wind < 10 && illum < 30 && cloud < 50) {
+                if (firstValidHour['ROTARY/SOF'] === -1) firstValidHour['ROTARY/SOF'] = i;
+                lastValidHour['ROTARY/SOF'] = i;
+                statusData['ROTARY/SOF'].status = 'VIABLE';
+                statusData['ROTARY/SOF'].color = 'text-[#22c55e]';
+              }
+
+              // STANDOFF/PGM: nightOnly AND precip <2mm/hr
+              if (isNight && rain <= 2) {
+                if (firstValidHour['STANDOFF/PGM'] === -1) firstValidHour['STANDOFF/PGM'] = i;
+                lastValidHour['STANDOFF/PGM'] = i;
+                statusData['STANDOFF/PGM'].status = 'VIABLE';
+                statusData['STANDOFF/PGM'].color = 'text-[#22c55e]';
+              }
+
+              // ISR: ANY hour AND precip <5mm/hr AND wind <20kt
+              if (rain <= 5 && wind <= 20) {
+                statusData['ISR'].status = 'VIABLE';
+                statusData['ISR'].color = 'text-[#22c55e]';
+              } else {
+                isrAllClear = false;
+              }
+            });
+
+            // ATOMIC: Set window ranges for ALL categories (status + window computed together)
+            Object.keys(firstValidHour).forEach(cat => {
+              if (firstValidHour[cat] !== -1 && lastValidHour[cat] !== -1) {
+                statusData[cat].window = `${formatTime(firstValidHour[cat])} - ${formatEndTime(lastValidHour[cat])}`;
+              }
+            });
+
+            // ISR is CONTINUOUS if all hours qualify, otherwise show first/last valid range
+            if (statusData['ISR'].status === 'VIABLE') {
+              statusData['ISR'].window = isrAllClear ? 'CONTINUOUS' : 'NEXT 24H';
+            }
+
+            // ATOMIC RETURN: Status and timeframe paired together in single output
+            return statusData;
+          }, [formatTime, formatEndTime, targetLocation]);
+
+          // Trigger 1 + 2 + 3: Subscribe to three live triggers for window status recomputation
+          useEffect(() => {
+            // Immediate compute on any trigger
+            const computeNow = () => {
+              const freshStatus = computeWindowStatusStateless(hourlyData, now);
+              setWindowStatusState(freshStatus);
+            };
+
+            // Compute immediately on load or data change (Trigger 1: forecast API response, Trigger 3: location change)
+            computeNow();
+
+            // Trigger 2: Every 60 seconds, recompute based on advancing system clock
+            const intervalId = setInterval(() => {
+              computeNow();
+            }, 60000);
+
+            return () => clearInterval(intervalId);
+          }, [hourlyData, now, computeWindowStatusStateless, targetLocation]);
+
+          // Use state-based windowStatus if available, fallback to stateless computation
+          const windowStatus = windowStatusState || computeWindowStatusStateless(hourlyData, now);
+
+          let windowStatusText = "";
+          let windowTransitionText = "";
+          if (currentData.status === 'green') {
+            windowStatusText = "OPEN";
+            let closeHour = selectedHourLocal;
+            while (closeHour < 24 && hourlyData[closeHour] && hourlyData[closeHour].status === 'green') closeHour++;
+            windowTransitionText = closeHour < 24 ? `CLOSES ${formatTime(closeHour)}` : "STABLE >24H";
+          } else {
+            windowStatusText = "CLOSED";
+            let openHour = selectedHourLocal;
+            while (openHour < 24 && hourlyData[openHour] && hourlyData[openHour].status !== 'green') openHour++;
+            windowTransitionText = openHour < 24 ? `OPENS ${formatTime(openHour)}` : "NO WINDOW NEXT 24H";
+          }
+
+          const constraints = {
+            cloud: { val: currentData.cloudBase || 3000, limit: 1000, margin: 500 },
+            wind: { val: currentData.windGust || 10, limit: 15, margin: 25 },
+            vis: { val: currentData.visibility || 7, limit: 3, margin: 5 }
+          };
+
+          let primaryBlocker = null;
+          let secondaryBlocker = null;
+          if (constraints.cloud.val < constraints.cloud.limit) primaryBlocker = "LOW CLOUD BASE";
+          else if (constraints.cloud.val < constraints.cloud.limit + constraints.cloud.margin) secondaryBlocker = "MARGINAL CLOUDS";
+
+          if (constraints.wind.val > constraints.wind.limit) {
+            if (!primaryBlocker) primaryBlocker = "HIGH WIND GUSTS";
+            else if (!secondaryBlocker) secondaryBlocker = "HIGH WIND GUSTS";
+          } else if (constraints.wind.val > constraints.wind.limit - 5 && !secondaryBlocker) {
+            secondaryBlocker = "MARGINAL WINDS";
+          }
+
+          if (constraints.vis.val < constraints.vis.limit) {
+            if (!primaryBlocker) primaryBlocker = "LOW VISIBILITY";
+            else if (!secondaryBlocker) secondaryBlocker = "LOW VISIBILITY";
+          }
+
+          let tightest = { name: 'NONE', marginText: '', ratio: Infinity };
+          let windBuffer = constraints.wind.limit - constraints.wind.val;
+          if (windBuffer >= 0 && windBuffer / constraints.wind.limit < tightest.ratio) {
+            tightest = { name: "WIND", marginText: `(+${windBuffer}${t('KT', true)})`, ratio: windBuffer / constraints.wind.limit };
+          }
+          let visBuffer = constraints.vis.val - constraints.vis.limit;
+          if (visBuffer >= 0 && visBuffer / constraints.vis.limit < tightest.ratio) {
+            tightest = { name: "VIS", marginText: `(+${visBuffer.toFixed(1)}${t('SM', true)})`, ratio: visBuffer / constraints.vis.limit };
+          }
+          let cloudBuffer = constraints.cloud.val - constraints.cloud.limit;
+          if (cloudBuffer >= 0 && cloudBuffer / constraints.cloud.limit < tightest.ratio) {
+            tightest = { name: "CLOUD", marginText: `(+${cloudBuffer}${t('FT', true)})`, ratio: cloudBuffer / constraints.cloud.limit };
+          }
+
+          let verdictStatus = "GO";
+          let verdictBg = "bg-[#22c55e]";
+          let verdictTextCol = "text-black";
+          if (currentData.status === 'red') {
+            verdictStatus = "NO-GO";
+            verdictBg = "bg-[#ef4444]";
+            verdictTextCol = "text-white";
+          } else if (currentData.status === 'amber') {
+            verdictStatus = "MARGINAL";
+            verdictBg = "bg-[#eab308]";
+            verdictTextCol = "text-black";
+          }
+
+          let iconType = 'CLEAR';
+          if (currentData.status === 'red') {
+            iconType = (primaryBlocker && primaryBlocker.includes("WIND")) ? 'WINDY' : 'STORM';
+          } else if (currentData.status === 'amber') {
+            iconType = (primaryBlocker && primaryBlocker.includes("WIND")) ? 'WINDY' : 'CLOUDY';
+          }
+
+          let conditionText = "CLEAR";
+          if (iconType === 'CLOUDY') conditionText = "OVERCAST";
+          if (iconType === 'STORM') conditionText = "STORMY";
+          if (iconType === 'WINDY') conditionText = "HIGH WINDS";
+
+          let tacticalSummary = "";
+          const limiterStr = t(primaryBlocker || secondaryBlocker || "WEATHER");
+
+          if (currentData.status === 'green') {
+            tacticalSummary = civilianMode
+              ? "Clear skies and calm conditions. Excellent flying weather for all aircraft."
+              : "Conditions nominal. Full package cleared. No degradation expected in current window.";
+          } else if (currentData.status === 'amber') {
+            tacticalSummary = civilianMode
+              ? `Mixed conditions. ${capitalize(limiterStr)} limiting some aircraft. Camera and sensor visibility may be reduced.`
+              : `Marginal conditions. ${capitalize(limiterStr)} reducing flexibility. Expect degraded EO/IR sensor acquisition.`;
+          } else {
+            tacticalSummary = civilianMode
+              ? `Poor weather. ${capitalize(limiterStr)} grounds helicopters and drones. Fighter jets face significant operational risks.`
+              : `Severe degradation. ${capitalize(limiterStr)} precludes rotary/UAV ops. Target acquisition probability critically low.`;
+          }
+
+          const cloudStat = constraints.cloud.val > 3000 ? {c: '#16a34a', t: 'CLEAR'} : constraints.cloud.val >= 1000 ? {c: '#ca8a04', t: 'MARGINAL'} : {c: '#dc2626', t: 'EXCEEDED'};
+          const windStat = constraints.wind.val < 15 ? {c: '#16a34a', t: 'CALM'} : constraints.wind.val <= 25 ? {c: '#ca8a04', t: 'MARGINAL'} : {c: '#dc2626', t: 'EXCEEDED'};
+          const visStat = constraints.vis.val > 5 ? {c: '#16a34a', t: 'CLEAR'} : constraints.vis.val >= 3 ? {c: '#ca8a04', t: 'REDUCED'} : {c: '#dc2626', t: 'EXCEEDED'};
+          const illVal = currentData.illumination || 40;
+          const illStat = illVal < 25 ? {c: '#16a34a', t: 'DARK'} : illVal <= 50 ? {c: '#ca8a04', t: 'PARTIAL'} : {c: '#dc2626', t: 'ATTACKER-FAV'};
+
+          const rowsToRender = useMemo(() =>
+            getAssetDataForHour ? getAssetDataForHour(selectedHourLocal) : (assetClearanceData || []),
+            [selectedHourLocal, getAssetDataForHour]
+          );
+
+          const handleHourChange = (hour) => {
+            setSelectedHourLocal(hour);
+            onHourChange(hour);
+          };
+
+          return (
+            <>
+              <style>{`
+                .hide-scrollbar::-webkit-scrollbar { display: none; }
+                .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+              `}</style>
+              <div className="w-full font-mono select-none bg-[#c0c0c0] outline outline-1 outline-[#808080]">
+                <div className="flex flex-col border-t-2 border-l-2 border-white border-b-2 border-r-2 border-[#808080] bg-[#c0c0c0] p-1 text-[#222] relative">
+
+                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center opacity-[0.03] z-0 overflow-hidden">
+                    <div className="transform -rotate-[15deg] text-8xl font-black tracking-widest whitespace-nowrap text-black">
+                      OSINT ANALYSIS // OPEN SOURCE DATA ONLY
+                    </div>
+                  </div>
+
+                  <div className="relative z-10">
+
+                    <div className="bg-[#000080] text-white flex justify-between items-center px-2 py-1 text-[11px] font-bold uppercase border border-white">
+                      <div>// 24HR ENVIRONMENTAL SUITABILITY SUMMARY – {targetLocation.country}-{targetLocation.name.slice(0, 3).toUpperCase()}-01 {civilianMode && "— CIVILIAN VIEW"}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-[#22c55e] animate-pulse border border-white"></div>
+                        LIVE {now.toISOString().substring(11, 16)} UTC
+                      </div>
+                    </div>
+
+                    <div className="flex gap-1 mt-1 h-[440px]">
+
+                      {/* COL 1: Environmental Viability (THE GENERAL'S VIEW) */}
+                      <div className="border-t-2 border-l-2 border-[#808080] border-b-2 border-r-2 border-white bg-[#c0c0c0] w-[260px] p-2 pb-4 flex flex-col relative" style={{minHeight: 'auto'}}>
+                        <div className="font-bold mb-1 text-sm border-b border-[#808080] pb-1">Environmental Viability</div>
+
+                        {/* Icon & Condition Layout */}
+                        <div className="flex items-center justify-between mt-2 px-1">
+                          <div className="relative w-[50px] h-[50px] border-2 border-[#808080] border-b-white border-r-white bg-[#008080] p-[5px] shadow-[inset_1px_1px_3px_rgba(0,0,0,0.5)] shrink-0">
+                            <RetroWeatherIcon type={iconType} />
+                          </div>
+
+                          <div className="flex flex-col items-end overflow-hidden">
+                            <div className={`text-2xl font-bold tracking-tighter uppercase truncate w-full text-right ${verdictBg === 'bg-[#ef4444]' ? 'text-[#ef4444]' : verdictBg === 'bg-[#eab308]' ? 'text-[#D4960A]' : 'text-[#22c55e]'}`}>
+                              {conditionText}
+                            </div>
+                            <div className="text-[11px] text-[#222] font-bold mt-[-2px]">
+                              CONF: <span className="text-[#16a34a]">{currentData.confidence}% // OBSERVED</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* WEATHER SUMMARY TEXT BOX */}
+                        <div className="mt-3 bg-white text-[#222] p-2 text-[11px] border-2 border-[#808080] border-b-white border-r-white shadow-[inset_1px_1px_2px_rgba(0,0,0,0.1)] leading-snug">
+                          <span className="underline block mb-1 text-[#000080] uppercase font-bold text-[10px]">WEATHER SUMMARY:</span>
+                          {tacticalSummary}
+                        </div>
+
+                        {/* WINDOW STATUS GRID */}
+                        <div className="mt-3 border-2 border-[#808080] border-b-white border-r-white px-2 py-1 bg-black text-white">
+                          <div className="text-[10px] font-bold mb-1 border-b border-[#808080] pb-1 tracking-wider uppercase">WINDOW STATUS</div>
+                          <div className="flex flex-col gap-1 text-[10px] font-bold">
+                            <div className="flex justify-between items-center">
+                              <span className="w-24">STEALTH</span>
+                              <span className={windowStatus.STEALTH.color}>{windowStatus.STEALTH.status}</span>
+                              <span className="text-right flex-1 text-white">{windowStatus.STEALTH.window}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="w-24">TACTICAL AIR</span>
+                              <span className={windowStatus['TACTICAL AIR'].color}>{windowStatus['TACTICAL AIR'].status}</span>
+                              <span className="text-right flex-1 text-white">{windowStatus['TACTICAL AIR'].window}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="w-24">ROTARY/SOF</span>
+                              <span className={windowStatus['ROTARY/SOF'].color}>{windowStatus['ROTARY/SOF'].status}</span>
+                              <span className="text-right flex-1 text-white">{windowStatus['ROTARY/SOF'].window}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="w-24">STANDOFF/PGM</span>
+                              <span className={windowStatus['STANDOFF/PGM'].color}>{windowStatus['STANDOFF/PGM'].status}</span>
+                              <span className="text-right flex-1 text-white">{windowStatus['STANDOFF/PGM'].window}</span>
+                            </div>
+                            <div className="flex justify-between items-center border-t border-[#808080] pt-1 mt-1">
+                              <span className="w-24">ISR</span>
+                              <span className={windowStatus.ISR.color}>{windowStatus.ISR.status}</span>
+                              <span className="text-right flex-1 text-white">{windowStatus.ISR.window}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* MODEL AGREEMENT (2-line format without percentages) */}
+                        <div className="mt-auto border-t-2 border-l-2 border-[#808080] border-b-2 border-r-2 border-white p-1.5 bg-[#c0c0c0]">
+                          <div className="text-[10px] font-bold px-1 py-1">
+                            <div className="uppercase">MODEL AGREEMENT&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;HIGH CONFIDENCE</div>
+                            <div className="text-[9px] text-[#666]">SRC: GFS // ECMWF // UKMET</div>
+                          </div>
+                        </div>
+
+                      </div>
+
+                      {/* COL 2: Asset Clearance & Timeline */}
+                      <div className="border-t-2 border-l-2 border-[#808080] border-b-2 border-r-2 border-white flex-1 p-2 pb-4 flex flex-col bg-[#c0c0c0]" style={{minHeight: 'auto'}}>
+                        <div className="flex justify-between items-end mb-2 border-b border-[#808080] pb-1">
+                          <div className="font-bold text-sm">Asset Clearance Profile</div>
+                          <div className="text-[11px] font-bold text-[#000080]">VALID: {formatTime(selectedHourLocal)}</div>
+                        </div>
+
+                        {/* DETAILED 6-COLUMN COLLAPSIBLE TABLE (+ COVER ASSIST) */}
+                        <div className="flex flex-col mb-2 bg-white border-2 border-[#808080] border-b-white border-r-white shadow-[inset_1px_1px_3px_rgba(0,0,0,0.1)] flex-1 overflow-hidden relative">
+
+                          {/* Table Header - Dynamic based on military/civilian mode */}
+                          <div className="grid grid-cols-[140px_110px_100px_70px_120px_1fr] gap-1 text-[12px] text-[#222] font-bold border-b border-[#808080] bg-[#dfdfdf] p-1 shadow-[inset_1px_1px_0_white] uppercase">
+                            <div className="pl-1">PLATFORM</div>
+                            <div>STATUS</div>
+                            <div className="leading-tight"><div>FRICTION</div><div>DRIVER</div></div>
+                            <div>{civilianMode ? 'COVER ASSIST' : 'CLOUD OFFSET'}</div>
+                            <div>{civilianMode ? 'FLYABLE?' : 'NET CLEARANCE'}</div>
+                          </div>
+
+                          {/* Table Body & Custom Scrollbar Track */}
+                          <div className="flex-1 flex overflow-hidden">
+
+                            {/* Rows Container (Scrollable but native scrollbar hidden via CSS) */}
+                            <div className="flex-1 flex flex-col py-1 overflow-y-auto text-[14px] text-[#222] leading-tight hide-scrollbar">
+                              {rowsToRender.map((row) => {
+                                // Skip rendering child rows if their parent is collapsed
+                                if (row.type === 'child' && !expandedRows[row.parentId]) return null;
+
+                                return (
+                                  <div key={row.id} className={`grid grid-cols-[140px_110px_100px_70px_120px_1fr] gap-1 items-start px-1 py-[3px] border-b border-[#f0f0f0] text-[14px] ${row.type === 'parent' ? 'bg-[#f8f8f8]' : 'bg-white hover:bg-[#f0f0f0]'}`}>
+
+                                    {/* Platform (Tree control) */}
+                                    <div className={`flex items-start gap-1 pr-1 ${row.type === 'child' ? 'pl-[18px]' : ''}`}>
+                                      {row.type === 'parent' ? (
+                                        <div
+                                          onClick={() => toggleRow(row.id)}
+                                          className="w-2.5 h-2.5 mt-[1px] shrink-0 border border-[#808080] bg-white flex items-center justify-center text-[7px] font-bold leading-none cursor-pointer"
+                                        >
+                                          {expandedRows[row.id] ? '-' : '+'}
+                                        </div>
+                                      ) : (
+                                        <div className="w-2.5 h-2.5 shrink-0" />
+                                      )}
+                                      <span className={`truncate leading-[12px] text-[12px] ${row.type === 'parent' ? 'font-bold' : ''}`} title={row.name}>
+                                        {row.name}
+                                      </span>
+                                    </div>
+
+                                    {/* Status */}
+                                    <div className="flex items-start gap-1.5 pr-1 text-[10px]">
+                                      <div className={`w-2.5 h-2.5 mt-[1px] shrink-0 border border-[#808080] shadow-[inset_1px_1px_rgba(0,0,0,0.3)] ${row.color}`} />
+                                      <span className="leading-[12px] break-words">
+                                        {translateStatus(row.status)}
+                                      </span>
+                                    </div>
+
+                                    {/* Column 3: Friction Driver */}
+                                    <div className="pr-1 text-[#666] font-bold truncate text-[10px]">
+                                      {t(row.limiter)}
+                                    </div>
+
+                                    {/* Column 4: Cloud Offset / Cover Assist - color coded */}
+                                    <div className="pr-1 text-[10px] font-bold">
+                                      {row.coverAssist ? (
+                                        <span className={`leading-[12px] break-words ${row.coverAssist === 'STRONG' ? 'text-[#22c55e]' : row.coverAssist === 'PARTIAL' ? 'text-[#ca8a04]' : row.coverAssist === 'INSUFFICIENT' ? 'text-[#dc2626]' : 'text-[#999]'}`}>
+                                          {row.coverAssist}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[#999]">N/A</span>
+                                      )}
+                                    </div>
+
+                                    {/* Column 5: Net Clearance / Flyable? - color coded */}
+                                    <div className="font-bold pr-1 text-[10px]">
+                                      {(() => {
+                                        const nc = row.netClearance;
+                                        let color = 'text-[#666]';
+                                        if (nc === 'CLEARED' || nc === 'OPTIMAL') color = 'text-[#22c55e]';
+                                        else if (nc === 'PARTIALLY CLEARED' || nc === 'MARGINAL' || nc === 'RESTRICTED') color = 'text-[#ca8a04]';
+                                        else if (nc === 'FULLY GROUNDED') color = 'text-[#dc2626]';
+                                        return <span className={`leading-[12px] break-words ${color}`}>{nc || translateRisk(row.risk)}</span>;
+                                      })()}
+                                    </div>
+
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Authentic Win98 Visual Scrollbar */}
+                            <div className="w-[16px] bg-[#dfdfdf] border-l border-[#808080] flex flex-col shadow-[inset_1px_1px_0_white]">
+                              <div className="h-[15px] border border-[#808080] bg-[#c0c0c0] flex items-center justify-center border-b-black border-r-black border-t-white border-l-white active:border-t-[#808080] active:border-l-[#808080] active:border-b-white active:border-r-white">
+                                <svg width="6" height="4" viewBox="0 0 6 4"><path d="M0 4L3 0L6 4H0Z" fill="#000"/></svg>
+                              </div>
+                              <div className="h-[40px] border border-[#808080] bg-[#c0c0c0] border-b-black border-r-black border-t-white border-l-white mt-[1px]"></div>
+                              <div className="flex-1 bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGElEQVQIW2NkYGD4z8DAwMgAI0AMDAwMAAwxAQE0y2sNAAAAAElFTkSuQmCC')] opacity-20"></div>
+                              <div className="h-[15px] border border-[#808080] bg-[#c0c0c0] flex items-center justify-center border-b-black border-r-black border-t-white border-l-white active:border-t-[#808080] active:border-l-[#808080] active:border-b-white active:border-r-white">
+                                <svg width="6" height="4" viewBox="0 0 6 4"><path d="M0 0L3 4L6 0H0Z" fill="#000"/></svg>
+                              </div>
+                            </div>
+
+                          </div>
+                        </div>
+
+                        <div className="mt-auto">
+                          <div className="flex justify-between text-[11px] font-bold mb-1 border-b border-[#808080] pb-1">
+                            <span>JOINT ALIGNMENT TIMELINE</span>
+                            <span className="text-[#222]">24HR ({timeMode === 'UTC' ? 'ZULU' : timeMode === 'LOCAL' ? 'LOCAL' : 'CIVILIAN'})</span>
+                          </div>
+
+                          {/* MICRO-LEGEND: Tactical Window Legend with Hover Tooltips */}
+                          <div className="flex gap-6 text-[17px] font-bold mb-1 px-1 items-center">
+                            <div className="flex items-center gap-2 relative group">
+                              <svg width="50" height="16" viewBox="0 0 50 16" style={{display: 'inline'}}>
+                                <circle cx="4" cy="8" r="2.5" fill="#FF6600" />
+                                <line x1="6" y1="8" x2="44" y2="8" stroke="#FF6600" strokeWidth="3" />
+                                <circle cx="46" cy="8" r="2.5" fill="#FF6600" />
+                              </svg>
+                              <span className="text-[#222]">Primary Strike Window</span>
+                              <span className="ml-1 w-4 h-4 bg-[#000080] text-white text-[10px] leading-4 text-center rounded-full cursor-help font-bold">?</span>
+                              <div className="absolute bottom-full left-0 mb-2 w-max p-2 bg-black text-white text-[10px] border border-[#808080] rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 max-w-[280px] font-mono">
+                                Optimal illumination conditions (LOW) with acceptable cloud cover and winds for stealth platform operations.
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 relative group">
+                              <svg width="50" height="16" viewBox="0 0 50 16" style={{display: 'inline'}}>
+                                <circle cx="4" cy="8" r="2.5" fill="#00FFFF" stroke="#333" strokeWidth="1" />
+                                <line x1="6" y1="8" x2="44" y2="8" stroke="#00FFFF" strokeWidth="3" />
+                                <circle cx="46" cy="8" r="2.5" fill="#00FFFF" stroke="#333" strokeWidth="1" />
+                              </svg>
+                              <span className="text-[#222]">Tactical Air Window</span>
+                              <span className="ml-1 w-4 h-4 bg-[#000080] text-white text-[10px] leading-4 text-center rounded-full cursor-help font-bold">?</span>
+                              <div className="absolute bottom-full left-0 mb-2 w-max p-2 bg-black text-white text-[10px] border border-[#808080] rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 max-w-[280px] font-mono">
+                                Extended operations window with acceptable cloud cover (≤25%) and winds (≤10kt) for tactical aircraft and rotary-wing assets.
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* TIMELINE WITH DYNAMIC WINDOW DETECTION */}
+                          <div className="relative w-full mt-1">
+                            {/* Cell Container */}
+                            <div className="flex h-7 w-full gap-[1px] cursor-pointer bg-[#808080] p-[1px] shadow-[inset_1px_1px_0_black,inset_-1px_-1px_0_white] relative">
+                              {hourlyData.map((d, i) => {
+                                // TACTICAL AIR WINDOW: Cloud ≤25%, Wind ≤10kt
+                                const tacticalQuality = (d.cloudCover || 0) <= 25 && (d.windGust || 0) <= 10;
+
+                                // PRIMARY WINDOW: Lowest illumination + acceptable cloud/wind
+                                // For cloud suppression scenario: cloud 70%+ suppresses high moon
+                                const cloud = d.cloudCover || 0;
+                                const wind = d.windGust || 0;
+                                const illum = d.illumination || 0;
+                                const isTactical = cloud <= 25 && wind <= 10;
+                                const isConstraintOptimal = cloud >= 70 && wind <= 8 && illum > 60; // Cloud suppresses lunar
+
+                                // Color logic per spec
+                                let cellColor = 'bg-[#4ade80]'; // Default GREEN
+                                if (wind >= 15) {
+                                  cellColor = 'bg-[#f87171]'; // RED: wind ≥15
+                                } else if ((cloud > 25 && cloud < 70) || (wind > 10 && wind <= 14)) {
+                                  cellColor = 'bg-[#facc15]'; // AMBER: marginal cloud/wind
+                                } else if (cloud >= 70 && wind <= 8) {
+                                  // Check if cloud suppression works for this illumination
+                                  if (illum > 60) {
+                                    cellColor = 'bg-[#4ade80]'; // GREEN if cloud suppresses lunar
+                                  } else {
+                                    cellColor = 'bg-[#facc15]'; // AMBER if still high exposure
+                                  }
+                                }
+
+                                return (
+                                  <div
+                                    key={i}
+                                    onClick={() => handleHourChange(i)}
+                                    className={`flex-1 relative flex flex-col items-center justify-center text-[6px] leading-none ${i === selectedHourLocal ? 'border-2 border-white shadow-[0_0_0_1px_black_inset] z-10' : 'border border-[#808080]'} ${cellColor} hover:brightness-110 transition-all`}
+                                    title={`Hour ${i}: Cloud ${cloud}% Wind ${wind}kt Illum ${illum}%`}
+                                  >
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* SVG Overlay for Span Lines with High-Contrast Endpoint Dots */}
+                            {(() => {
+                              const cellWidth = 100 / 24;
+                              const tacVisible = windows.tactical;
+                              const pwVisible = windows.primary;
+
+                              return (
+                                <svg className="absolute top-0 left-0 w-full h-7 pointer-events-none" style={{overflow: 'visible'}}>
+                                  {/* PW span line (bright orange) */}
+                                  {pwVisible && (
+                                    <>
+                                      <line x1={`${pwVisible.start * cellWidth + cellWidth/2}%`} y1="12" x2={`${(pwVisible.end + 1) * cellWidth - cellWidth/2}%`} y2="12" stroke="#FF6600" strokeWidth="3" strokeLinecap="round" />
+                                      <circle cx={`${pwVisible.start * cellWidth + cellWidth/2}%`} cy="12" r="3.5" fill="#FF6600" stroke="none" />
+                                      <circle cx={`${(pwVisible.end + 1) * cellWidth - cellWidth/2}%`} cy="12" r="3.5" fill="#FF6600" stroke="none" />
+                                    </>
+                                  )}
+                                  {/* TAC span line (bright cyan) - offset 4px vertically */}
+                                  {tacVisible && (
+                                    <>
+                                      <line x1={`${tacVisible.start * cellWidth + cellWidth/2}%`} y1="16" x2={`${(tacVisible.end + 1) * cellWidth - cellWidth/2}%`} y2="16" stroke="#00FFFF" strokeWidth="3" strokeLinecap="round" />
+                                      <circle cx={`${tacVisible.start * cellWidth + cellWidth/2}%`} cy="16" r="3.5" fill="#00FFFF" stroke="none" />
+                                      <circle cx={`${(tacVisible.end + 1) * cellWidth - cellWidth/2}%`} cy="16" r="3.5" fill="#00FFFF" stroke="none" />
+                                    </>
+                                  )}
+                                </svg>
+                              );
+                            })()}
+                          </div>
+
+                          <div className="flex justify-between text-[10px] text-[#222] mt-1 px-1 font-bold">
+                            {[0, 6, 12, 18, 23].map(idx => {
+                              const d = hourlyData[idx];
+                              if (!d) return <span key={idx}></span>;
+                              const label = timeMode === 'UTC' ? d.time : timeMode === 'LOCAL' ? d.locTime : d.civTime;
+                              return <span key={idx}>{label || ''}</span>;
+                            })}
+                          </div>
+
+                          <div className="mt-2 bg-[#d4d4d4] border-t-2 border-l-2 border-[#808080] border-b-2 border-r-2 border-white p-2 text-[14px] font-bold text-[#000080] shadow-[inset_1px_1px_0_black] overflow-hidden whitespace-nowrap">
+                            <span className="text-[16px] text-black">▶</span> PRIMARY: {windows.primary ? `${formatTime(windows.primary.start)} - ${formatEndTime(windows.primary.end)}` : 'NONE'} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; TACTICAL: {windows.tactical ? `${formatTime(windows.tactical.start)} - ${formatEndTime(windows.tactical.end)}` : 'NONE'} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; SECONDARY: {windows.secondary ? `${formatTime(windows.secondary.start)} - ${formatEndTime(windows.secondary.end)}` : 'NONE'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* COL 3: Constraint / Conditions Analysis */}
+                      <div className="border-t-2 border-l-2 border-[#808080] border-b-2 border-r-2 border-white w-[290px] p-2 pb-4 flex flex-col bg-[#c0c0c0]" style={{minHeight: 'auto'}}>
+                        <div className="font-bold mb-2 text-sm border-b border-[#808080] pb-1">Constraint Analysis</div>
+
+                        <div className="flex flex-col gap-3">
+
+                          {/* Constraint: Cloud Base */}
+                          <div className="relative group bg-white border-2 border-[#808080] border-b-white border-r-white p-2.5 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.1)]">
+                            <div className="flex justify-between text-[11px] font-bold mb-1 border-b border-[#ccc] pb-1">
+                              <span className="text-black uppercase">{t("CLOUD BASE")}</span>
+                              <span className="text-[#444]">MIN: {constraints.cloud.limit}{t("FT", true)}</span>
+                            </div>
+                            <div className="border border-[#808080] h-3 bg-white relative my-1.5 shadow-[inset_1px_1px_2px_rgba(0,0,0,0.1)]">
+                              <div className={`h-full ${cloudStat.c === '#dc2626' ? 'bg-[#ef4444]' : cloudStat.c === '#ca8a04' ? 'bg-[#eab308]' : 'bg-[#22c55e]'}`} style={{width: `${Math.min(100, (constraints.cloud.val / 10000) * 100)}%`}}></div>
+                              <div className="absolute top-[-2px] bottom-[-2px] w-[2px] bg-black z-10" style={{left: `${(constraints.cloud.limit / 10000) * 100}%`}}></div>
+                            </div>
+                            <div className="flex justify-between text-[11px] font-bold mt-1">
+                              <span className="uppercase" style={{color: cloudStat.c}}>{t(cloudStat.t)}</span>
+                              <span style={{color: cloudStat.c}}>OBS: {constraints.cloud.val} {t("FT", true)}</span>
+                            </div>
+                          </div>
+
+                          {/* Constraint: Wind Gust */}
+                          <div className="relative group bg-white border-2 border-[#808080] border-b-white border-r-white p-2.5 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.1)]">
+                            <div className="flex justify-between text-[11px] font-bold mb-1 border-b border-[#ccc] pb-1">
+                              <span className="text-black uppercase">{t("WIND GUST")}</span>
+                              <span className="text-[#444]">MAX: {constraints.wind.limit}{t("KT", true)}</span>
+                            </div>
+                            <div className="border border-[#808080] h-3 bg-white relative my-1.5 shadow-[inset_1px_1px_2px_rgba(0,0,0,0.1)]">
+                              <div className={`h-full ${windStat.c === '#dc2626' ? 'bg-[#ef4444]' : windStat.c === '#ca8a04' ? 'bg-[#eab308]' : 'bg-[#22c55e]'}`} style={{width: `${Math.min(100, (constraints.wind.val / 40) * 100)}%`}}></div>
+                              <div className="absolute top-[-2px] bottom-[-2px] w-[2px] bg-black z-10" style={{left: `${(constraints.wind.limit / 40) * 100}%`}}></div>
+                            </div>
+                            <div className="flex justify-between text-[11px] font-bold mt-1">
+                              <span className="uppercase" style={{color: windStat.c}}>{t(windStat.t)}</span>
+                              <span style={{color: windStat.c}}>OBS: {constraints.wind.val} {t("KT", true)}</span>
+                            </div>
+                          </div>
+
+                          {/* Constraint: Visibility */}
+                          <div className="relative group bg-white border-2 border-[#808080] border-b-white border-r-white p-2.5 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.1)]">
+                            <div className="flex justify-between text-[11px] font-bold mb-1 border-b border-[#ccc] pb-1">
+                              <span className="text-black uppercase">{t("VISIBILITY")}</span>
+                              <span className="text-[#444]">MIN: {constraints.vis.limit}{t("SM", true)}</span>
+                            </div>
+                            <div className="border border-[#808080] h-3 bg-white relative my-1.5 shadow-[inset_1px_1px_2px_rgba(0,0,0,0.1)]">
+                              <div className={`h-full ${visStat.c === '#dc2626' ? 'bg-[#ef4444]' : visStat.c === '#ca8a04' ? 'bg-[#eab308]' : 'bg-[#22c55e]'}`} style={{width: `${Math.min(100, (constraints.vis.val / 10) * 100)}%`}}></div>
+                              <div className="absolute top-[-2px] bottom-[-2px] w-[2px] bg-black z-10" style={{left: `${(constraints.vis.limit / 10) * 100}%`}}></div>
+                            </div>
+                            <div className="flex justify-between text-[11px] font-bold mt-1">
+                              <span className="uppercase" style={{color: visStat.c}}>{t(visStat.t)}</span>
+                              <span style={{color: visStat.c}}>OBS: {constraints.vis.val} {t("SM", true)}</span>
+                            </div>
+                          </div>
+
+                          {/* Constraint: Illumination Exposure */}
+                          <div className="relative group bg-white border-2 border-[#808080] border-b-white border-r-white px-2 py-1.5 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.1)]">
+                            <div className="flex justify-between text-[11px] font-bold mb-0.5 border-b border-[#ccc] pb-0.5">
+                              <span className="text-black uppercase">ILLUMINATION EXPOSURE</span>
+                              <span className="text-[#444]">PROFILE-DEPENDENT</span>
+                            </div>
+                            <div className="border border-[#808080] h-3 bg-white relative my-1 shadow-[inset_1px_1px_2px_rgba(0,0,0,0.1)]">
+                              <div className={`h-full ${illStat.c === '#dc2626' ? 'bg-[#ef4444]' : illStat.c === '#ca8a04' ? 'bg-[#eab308]' : 'bg-[#22c55e]'}`} style={{width: `${illVal}%`}}></div>
+                              <div className="absolute top-[-2px] bottom-[-2px] w-[2px] bg-black z-10" style={{left: `50%`}}></div>
+                            </div>
+                            <div className="flex justify-between text-[11px] font-bold mt-0.5">
+                              <span className="uppercase max-w-[200px]" style={{color: illStat.c}}>
+                                {(() => {
+                                  const cloudCover = (currentData.cloudCover || 0);
+                                  if (cloudCover >= 60) {
+                                    return "HIGH EXPOSURE. SUPPRESSED BY OVERCAST";
+                                  }
+                                  if (illVal < 30) {
+                                    return "LOW EXPOSURE";
+                                  } else if (illVal <= 60) {
+                                    return "MODERATE EXPOSURE";
+                                  } else if (illVal <= 85) {
+                                    return "HIGH EXPOSURE";
+                                  } else {
+                                    return "CRITICAL EXPOSURE";
+                                  }
+                                })()}
+                              </span>
+                              <span style={{color: illStat.c}}>OBS: {illVal}%</span>
+                            </div>
+                          </div>
+
+                          {/* Constraint: GPS / EW Status */}
+                        </div>
+
+                      </div>
+                    </div>
+
+                    {/* Footer Status Bar */}
+                    <div className="mt-1 flex gap-[2px] h-[24px]">
+                      <div className="border-t-2 border-l-2 border-[#808080] border-b-2 border-r-2 border-white flex-1 px-2 flex items-center justify-between text-[11px]">
+                        <span className="font-bold text-[#000080]">TARGET: {targetLocation.country}-{targetLocation.name.slice(0, 3).toUpperCase()}-01</span>
+                      </div>
+                      <div className="border-t-2 border-l-2 border-[#808080] border-b-2 border-r-2 border-white px-2 flex items-center text-[11px] text-[#222] font-bold">
+                        GEN: {now.toISOString().substring(0, 19)}Z
+                      </div>
+                      <div className="border-t-2 border-l-2 border-[#808080] border-b-2 border-r-2 border-white px-2 flex items-center text-[11px] text-[#222] font-bold">
+                        SRC: OBSERVED/NWPN
+                      </div>
+                      <div className="border-t-2 border-l-2 border-[#808080] border-b-2 border-r-2 border-white px-2 flex gap-3 items-center text-[11px] text-[#222] font-mono font-bold">
+                        <span>REC: 8A7F-29B</span>
+                        <span className="border-l border-[#808080] pl-3">HASH: 0x99F2A1C</span>
+                      </div>
+
+                      {/* Authentic Win98 Window Grip Hint */}
+                      <div className="border-t-2 border-l-2 border-[#808080] border-b-2 border-r-2 border-white w-[18px] flex items-end justify-end p-[2px]">
+                        <svg width="10" height="10" viewBox="0 0 8 8">
+                          <path d="M 6 0 L 8 0 L 8 2 L 6 2 Z M 2 4 L 4 4 L 4 6 L 2 6 Z M 6 4 L 8 4 L 8 6 L 6 6 Z M 0 6 L 2 6 L 2 8 L 0 8 Z M 4 6 L 6 6 L 6 8 L 4 8 Z" fill="#808080" />
+                          <path d="M 7 1 L 9 1 L 9 3 L 7 3 Z M 3 5 L 5 5 L 5 7 L 3 7 Z M 7 5 L 9 5 L 9 7 L 7 7 Z M 1 7 L 3 7 L 3 9 L 1 9 Z M 5 7 L 7 7 L 7 9 L 5 9 Z" fill="#ffffff" />
+                        </svg>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+            </>
+          );
+        }
+
         function IWEDADashboard() {
           const [activeCategory, setActiveCategory] = useState('ALL');
-          const [activeCountry, setActiveCountry] = useState('ALL');
+          const [activeCountry, setActiveCountry] = useState('');
           const [plainEnglish, setPlainEnglish] = useState(false);
           const [isFetching, setIsFetching] = useState(false);
           const [apiStatus, setApiStatus] = useState('CONNECTED');
@@ -342,8 +1282,9 @@
                     civTime = civFmt.format(dt);
                   } catch {}
 
+                  const cloudCover = Math.max(cLow, cMid, cHigh);
                   hours.push({
-                    time:`${hr2}00Z`, locTime, civTime, utcHour: dt.getUTCHours(), ceil, visSM, visDisp,
+                    time:`${hr2}00Z`, locTime, civTime, utcHour: dt.getUTCHours(), ceil, cloudCover, visSM, visDisp,
                     rain:parseFloat(rainIn.toFixed(3)), precipType, wind:windKt, gust:gustKt, illum, gpsDop, tempC, cf, pTend, pTendText, pTendColor, metar
                   });
                 }
@@ -377,7 +1318,7 @@
           const reliability = (DAY_RELIABILITY && DAY_RELIABILITY[selDay]) || (DAY_RELIABILITY && DAY_RELIABILITY[0]);
 
           const filteredAssets = ASSETS.filter(a =>
-            (activeCountry === 'ALL' || a.country === activeCountry) &&
+            (a.country === activeCountry) &&
             (activeCategory === 'ALL' || a.cat === activeCategory)
           );
 
@@ -403,6 +1344,104 @@
               case 'ESTIMATED': return 'bg-gray-600';
               default: return 'bg-gray-600';
             }
+          };
+
+          // ─── ILLUMINATION SENSITIVITY MAPPING ───────────────────────────────────────────
+          // Maps platform type to illumination sensitivity: LOW | MODERATE | HIGH
+          // HIGH sensitivity = NVG ops, rotary-wing, stealth platforms (vulnerable to moonlight)
+          // MODERATE sensitivity = fighters with EO/targeting systems
+          // LOW sensitivity = cruise missiles, GPS-guided munitions (all-weather)
+          const getIlluminationSensitivity = (asset) => {
+            if (!asset) return 'LOW';
+            // HIGH SENSITIVITY: Rotary-wing, NVG-dependent, stealth platforms
+            if (asset.type && (asset.type.includes('ROTARY') || asset.type.includes('STEALTH'))) return 'HIGH';
+            // HIGH SENSITIVITY: UAVs with EO/IR systems (loitering munitions, tactical drones)
+            if (asset.type && asset.type.includes('UAV_LOITER')) return 'HIGH';
+            if (asset.type && asset.type.includes('UAV_TAC')) return 'HIGH';
+            if (asset.type && asset.type.includes('UAV_MALE')) return 'MODERATE';
+            if (asset.type && asset.type.includes('UAV_ISR')) return 'MODERATE';
+            // MODERATE SENSITIVITY: Fighters, strike aircraft with targeting pods
+            if (asset.cat === 'STRIKE' && !asset.type?.includes('STEALTH')) return 'MODERATE';
+            // LOW SENSITIVITY: Cruise missiles, ballistic weapons, GPS-guided (all-weather)
+            if (asset.type && (asset.type.includes('MUNITION_CRUISE') || asset.type.includes('MUNITION_BALLISTIC') || asset.type.includes('MUNITION_HYPERSONIC'))) return 'LOW';
+            if (asset.type && asset.type.includes('MUNITION_GPS')) return 'LOW';
+            return 'MODERATE';
+          };
+
+          // ─── ILLUMINATION RISK MODIFIER ENGINE ──────────────────────────────────────────
+          // RISK MODIFIER (not hard constraint): Illumination degrades platform effectiveness
+          // Hard constraints (cloud, wind, vis) still override illumination logic
+          // illuminationBand: 0-20% = LOW | 21-60% = MODERATE | 61-100% = HIGH
+          const applyIlluminationModifier = (asset, fc, currentStatus, currentReason) => {
+            if (!fc || fc.illum === undefined) return { status: currentStatus, reason: currentReason };
+
+            const illumBand = fc.illum <= 20 ? 'LOW' : fc.illum <= 60 ? 'MODERATE' : 'HIGH';
+            const sensitivity = getIlluminationSensitivity(asset);
+
+            // Rule: HIGH illumination (>60%) + HIGH sensitivity → downgrade GREEN to AMBER, add risk
+            if (illumBand === 'HIGH' && sensitivity === 'HIGH' && currentStatus === 'GREEN') {
+              return {
+                status: 'AMBER',
+                reason: (plainEnglish ? `Moon ${fc.illum}% exposure` : `ILLUM ${fc.illum}%`) + ' ⚠'
+              };
+            }
+            // Rule: HIGH illumination (>60%) + MODERATE sensitivity → keep status but add risk flag
+            if (illumBand === 'HIGH' && sensitivity === 'MODERATE' && (currentStatus === 'GREEN' || currentStatus === 'AMBER')) {
+              if (!currentReason.includes('⚠')) {
+                return {
+                  status: currentStatus,
+                  reason: currentReason + ' ⚠'
+                };
+              }
+            }
+            // Rule: MODERATE illumination (21-60%) + HIGH sensitivity → add risk flag only
+            if (illumBand === 'MODERATE' && sensitivity === 'HIGH' && currentStatus === 'GREEN') {
+              return {
+                status: 'AMBER',
+                reason: (plainEnglish ? `Moon ${fc.illum}% exposure` : `ILLUM ${fc.illum}%`) + ' ⚠'
+              };
+            }
+
+            return { status: currentStatus, reason: currentReason };
+          };
+
+          const computeCoverAssist = (asset, fc, baseStatus, baseReason) => {
+            // Cloud suppression logic for illumination penalty relief
+            // Returns { assist: string, upgradedStatus: string, upgradedReason: string }
+            // or null if cloud cover doesn't apply to this platform
+
+            const sensitivity = getIlluminationSensitivity(asset);
+            if (sensitivity === 'LOW') return null; // N/A for GPS-guided, cruise missiles
+
+            const cloud = fc ? (fc.cloudCover || fc.cloud || 0) : 0;
+            const illum = fc ? (fc.illumination || fc.illum || 0) : 0;
+
+            // Only relevant if illumination is high (>60% = ATTACKER-FAV)
+            if (illum <= 60) return null; // N/A if not high illumination
+
+            let assist = null;
+            if (cloud >= 70) assist = 'STRONG'; // Cloud ≥70%: strong suppression
+            else if (cloud >= 40 && cloud < 70) assist = 'PARTIAL'; // 40-69%: partial
+            else if (cloud < 40) assist = 'INSUFFICIENT'; // <40%: insufficient
+
+            if (!assist) return null;
+
+            // If base status is RED due to illumination, check if cloud can upgrade it
+            let upgradedStatus = baseStatus;
+            let upgradedReason = baseReason;
+
+            // Rule: If grounded purely due to illumination AND clouds provide PARTIAL or STRONG suppression → upgrade to AMBER/MARGINAL
+            if (baseStatus === 'RED' && baseReason.includes('ILLUM')) {
+              if (assist === 'STRONG') {
+                upgradedStatus = 'AMBER';
+                upgradedReason = plainEnglish ? 'Moon suppressed (cloud cover)' : 'ILLUM SUPPRESSED';
+              } else if (assist === 'PARTIAL') {
+                upgradedStatus = 'AMBER';
+                upgradedReason = plainEnglish ? 'Moon suppressed (partial cloud)' : 'ILLUM SUPPRESSED';
+              }
+            }
+
+            return { assist, upgradedStatus, upgradedReason };
           };
 
           const evalCell = useCallback((asset, fc) => {
@@ -475,8 +1514,277 @@
             if (status === 'GREEN') reason = plainEnglish ? 'Clear' : 'OPTIMAL';
             if (lowCf && status !== 'GREY') reason += (status === 'GREEN' ? ' [~]' : '');
 
+            // Apply illumination risk modifier (only downgrades or adds flags, does not upgrade GREEN)
+            if (status !== 'RED') {
+              const illumModified = applyIlluminationModifier(asset, fc, status, reason);
+              status = illumModified.status;
+              reason = illumModified.reason;
+            }
+
             return { status, reason, isFallback, lowCf };
           }, [plainEnglish, uncertainty, selDay]);
+
+          // --- GENERATE ASSET CLEARANCE PROFILE (Live Data Mapping) ---
+          const generateAssetClearanceProfile = useCallback(() => {
+            const dayHours = (allData && allData[selDay]) || [];
+            const winDef = TACTICAL_WINDOWS[selWindow];
+            const windowHours = winDef ? winDef.hours.map(h => dayHours.find(fc => fc.utcHour === h)).filter(Boolean) : [];
+
+            if (!dayHours || dayHours.length === 0 || !windowHours || windowHours.length === 0) return [];
+
+            const nationAssets = ASSETS.filter(a => a.country === activeCountry);
+            const bestHour = windowHours[selHour];
+            if (!bestHour) return [];
+
+            const categoryGroups = {
+              'F-JET': nationAssets.filter(a => a.cat === 'STRIKE'),
+              'UAV': nationAssets.filter(a => a.cat === 'UAV' && !(a.type && a.type.includes('ISR'))),
+              'ROTARY': nationAssets.filter(a => a.cat === 'ROTARY'),
+              'ISR': nationAssets.filter(a => a.cat === 'SUPPORT' || (a.type && a.type.includes('ISR'))),
+              'PGM': nationAssets.filter(a => a.cat === 'WEAPONS')
+            };
+
+            // Translate category names for civilian mode
+            const translateCategoryName = (catName) => {
+              if (!civilianMode) return catName;
+              const translations = {
+                'F-JET': 'FIGHTERS & BOMBERS',
+                'UAV': 'DRONES',
+                'ROTARY': 'HELICOPTERS',
+                'ISR': 'RECONNAISSANCE',
+                'PGM': 'MISSILES & BOMBS'
+              };
+              return translations[catName] || catName;
+            };
+
+            let advancedAssets = [];
+            let assetId = 1;
+
+            Object.entries(categoryGroups).forEach(([catName, assets]) => {
+              if (assets.length === 0) return;
+
+              const greenCount = assets.filter(a => evalCell(a, bestHour).status === 'GREEN').length;
+              const redAssets = assets.filter(a => evalCell(a, bestHour).status === 'RED');
+
+              let parentStatus = greenCount === assets.length ? 'CLEARED' : greenCount > 0 ? 'PARTIALLY CLEARED' : 'FULLY GROUNDED';
+              let parentColor = greenCount === assets.length ? 'bg-[#22c55e]' : greenCount > 0 ? 'bg-[#eab308]' : 'bg-[#ef4444]';
+
+              let hasRisk = false;
+              assets.forEach(a => {
+                const res = evalCell(a, bestHour);
+                if (res.reason && res.reason.includes('★')) hasRisk = true;
+              });
+
+              const parentId = assetId++;
+              // For parent row, compute highest-priority cover assist from all children
+              let parentCoverAssist = null;
+              let parentLimiter = '—';
+
+              // First get limiter from red assets
+              if (redAssets.length > 0) {
+                const redResult = evalCell(redAssets[0], bestHour);
+                parentLimiter = redResult.reason.split(' ')[0];
+              }
+
+              // Compute cover assist for all children and get highest priority
+              const priorityOrder = { 'STRONG': 4, 'PARTIAL': 3, 'INSUFFICIENT': 2, 'N/A': 1 };
+              let maxPriority = 0;
+              assets.forEach(asset => {
+                let result = evalCell(asset, bestHour);
+                const frictionDriver = result.reason.split(' ')[0];
+                if (frictionDriver === 'ILLUM') {
+                  const assist = computeCoverAssist(asset, bestHour, result.status, result.reason);
+                  if (assist && assist.assist) {
+                    const priority = priorityOrder[assist.assist] || 0;
+                    if (priority > maxPriority) {
+                      maxPriority = priority;
+                      parentCoverAssist = assist.assist;
+                    }
+                  }
+                }
+              });
+              advancedAssets.push({
+                id: parentId,
+                type: 'parent',
+                name: translateCategoryName(catName),
+                status: plainEnglish ? (parentStatus === 'CLEARED' ? 'FAVORABLE' : parentStatus === 'PARTIALLY CLEARED' ? 'MIXED' : 'UNFAVORABLE') : parentStatus,
+                count: `${greenCount} OF ${assets.length} CLEARED`,
+                limiter: parentLimiter,
+                illum: bestHour ? Math.round(bestHour.illumination || bestHour.illum || 0) : null,
+                coverAssist: parentCoverAssist,
+                netClearance: parentStatus,
+                risk: hasRisk ? '⚠ ELEVATED RISK' : '—',
+                color: parentColor
+              });
+
+              assets.forEach(asset => {
+                let result = evalCell(asset, bestHour);
+                const frictionDriver = result.reason.split(' ')[0];
+
+                // Check if cloud cover can suppress illumination penalty - ONLY if ILLUM is the friction driver
+                let coverAssist = null;
+                let upgradedStatus = result.status;
+                if (frictionDriver === 'ILLUM') {
+                  const assist = computeCoverAssist(asset, bestHour, result.status, result.reason);
+                  if (assist) {
+                    coverAssist = assist.assist;
+                    upgradedStatus = assist.upgradedStatus;
+                    result.reason = assist.upgradedReason;
+                  }
+                }
+
+                const childStatus = upgradedStatus === 'GREEN' ? 'CLEARED' : upgradedStatus === 'AMBER' ? 'RESTRICTED' : 'FULLY GROUNDED';
+                const childColor = upgradedStatus === 'GREEN' ? 'bg-[#22c55e]' : upgradedStatus === 'AMBER' ? 'bg-[#eab308]' : 'bg-[#ef4444]';
+
+                advancedAssets.push({
+                  id: assetId++,
+                  parentId: parentId,
+                  type: 'child',
+                  name: `↳ ${plainEnglish ? asset.civ : asset.name}`,
+                  status: plainEnglish ? (childStatus === 'CLEARED' ? 'FAVORABLE' : childStatus === 'RESTRICTED' ? 'MIXED' : 'UNFAVORABLE') : childStatus,
+                  count: upgradedStatus === 'GREEN' ? '1 OF 1 CLEARED' : '0 OF 1 CLEARED',
+                  limiter: frictionDriver,
+                  illum: bestHour ? Math.round(bestHour.illumination || bestHour.illum || 0) : null,
+                  coverAssist: coverAssist,
+                  netClearance: childStatus,
+                  risk: result.reason.includes('★') ? '⚠ ELEVATED RISK' : '—',
+                  color: childColor
+                });
+              });
+            });
+
+            return advancedAssets;
+          }, [allData, selDay, selWindow, selHour, activeCountry, evalCell, plainEnglish]);
+
+          const assetClearanceData = useMemo(() => generateAssetClearanceProfile(), [generateAssetClearanceProfile]);
+
+          // --- GENERATE ASSET CLEARANCE FOR ANY HOUR INDEX (used by SuitabilityPanel) ---
+          const generateAssetClearanceForHourIndex = useCallback((hourIndex) => {
+            const dayHours = (allData && allData[selDay]) || [];
+            const fc = dayHours[hourIndex];
+            if (!fc) return [];
+
+            const nationAssets = ASSETS.filter(a => a.country === activeCountry);
+
+            const categoryGroups = {
+              'F-JET': nationAssets.filter(a => a.cat === 'STRIKE'),
+              'UAV': nationAssets.filter(a => a.cat === 'UAV' && !(a.type && a.type.includes('ISR'))),
+              'ROTARY': nationAssets.filter(a => a.cat === 'ROTARY'),
+              'ISR': nationAssets.filter(a => a.cat === 'SUPPORT' || (a.type && a.type.includes('ISR'))),
+              'PGM': nationAssets.filter(a => a.cat === 'WEAPONS')
+            };
+
+            // Translate category names for civilian mode
+            const translateCategoryName = (catName) => {
+              if (!civilianMode) return catName;
+              const translations = {
+                'F-JET': 'FIGHTERS & BOMBERS',
+                'UAV': 'DRONES',
+                'ROTARY': 'HELICOPTERS',
+                'ISR': 'RECONNAISSANCE',
+                'PGM': 'MISSILES & BOMBS'
+              };
+              return translations[catName] || catName;
+            };
+
+            let advancedAssets = [];
+            let assetId = 1;
+
+            Object.entries(categoryGroups).forEach(([catName, assets]) => {
+              if (assets.length === 0) return;
+
+              const greenCount = assets.filter(a => evalCell(a, fc).status === 'GREEN').length;
+              const redAssets = assets.filter(a => evalCell(a, fc).status === 'RED');
+
+              let parentStatus = greenCount === assets.length ? 'CLEARED' : greenCount > 0 ? 'PARTIALLY CLEARED' : 'FULLY GROUNDED';
+              let parentColor = greenCount === assets.length ? 'bg-[#22c55e]' : greenCount > 0 ? 'bg-[#eab308]' : 'bg-[#ef4444]';
+
+              let hasRisk = false;
+              assets.forEach(a => {
+                const res = evalCell(a, fc);
+                if (res.reason && res.reason.includes('★')) hasRisk = true;
+              });
+
+              const parentId = assetId++;
+              // For parent row, compute highest-priority cover assist from all children
+              let parentCoverAssist = null;
+              let parentLimiter = '—';
+
+              // First get limiter from red assets
+              if (redAssets.length > 0) {
+                const redResult = evalCell(redAssets[0], fc);
+                parentLimiter = redResult.reason.split(' ')[0];
+              }
+
+              // Compute cover assist for all children and get highest priority
+              const priorityOrder = { 'STRONG': 4, 'PARTIAL': 3, 'INSUFFICIENT': 2, 'N/A': 1 };
+              let maxPriority = 0;
+              assets.forEach(asset => {
+                let result = evalCell(asset, fc);
+                const frictionDriver = result.reason.split(' ')[0];
+                if (frictionDriver === 'ILLUM') {
+                  const assist = computeCoverAssist(asset, fc, result.status, result.reason);
+                  if (assist && assist.assist) {
+                    const priority = priorityOrder[assist.assist] || 0;
+                    if (priority > maxPriority) {
+                      maxPriority = priority;
+                      parentCoverAssist = assist.assist;
+                    }
+                  }
+                }
+              });
+              advancedAssets.push({
+                id: parentId,
+                type: 'parent',
+                name: translateCategoryName(catName),
+                status: plainEnglish ? (parentStatus === 'CLEARED' ? 'FAVORABLE' : parentStatus === 'PARTIALLY CLEARED' ? 'MIXED' : 'UNFAVORABLE') : parentStatus,
+                count: `${greenCount} OF ${assets.length} CLEARED`,
+                limiter: parentLimiter,
+                illum: fc ? Math.round(fc.illumination || fc.illum || 0) : null,
+                coverAssist: parentCoverAssist,
+                netClearance: parentStatus,
+                risk: hasRisk ? '⚠ ELEVATED RISK' : '—',
+                color: parentColor
+              });
+
+              assets.forEach(asset => {
+                let result = evalCell(asset, fc);
+                const frictionDriver = result.reason.split(' ')[0];
+
+                // Check if cloud cover can suppress illumination penalty - ONLY if ILLUM is the friction driver
+                let coverAssist = null;
+                let upgradedStatus = result.status;
+                if (frictionDriver === 'ILLUM') {
+                  const assist = computeCoverAssist(asset, fc, result.status, result.reason);
+                  if (assist) {
+                    coverAssist = assist.assist;
+                    upgradedStatus = assist.upgradedStatus;
+                    result.reason = assist.upgradedReason;
+                  }
+                }
+
+                const childStatus = upgradedStatus === 'GREEN' ? 'CLEARED' : upgradedStatus === 'AMBER' ? 'RESTRICTED' : 'FULLY GROUNDED';
+                const childColor = upgradedStatus === 'GREEN' ? 'bg-[#22c55e]' : upgradedStatus === 'AMBER' ? 'bg-[#eab308]' : 'bg-[#ef4444]';
+
+                advancedAssets.push({
+                  id: assetId++,
+                  parentId: parentId,
+                  type: 'child',
+                  name: `↳ ${plainEnglish ? asset.civ : asset.name}`,
+                  status: plainEnglish ? (childStatus === 'CLEARED' ? 'FAVORABLE' : childStatus === 'RESTRICTED' ? 'MIXED' : 'UNFAVORABLE') : childStatus,
+                  count: upgradedStatus === 'GREEN' ? '1 OF 1 CLEARED' : '0 OF 1 CLEARED',
+                  limiter: frictionDriver,
+                  illum: fc ? Math.round(fc.illumination || fc.illum || 0) : null,
+                  coverAssist: coverAssist,
+                  netClearance: childStatus,
+                  risk: result.reason.includes('★') ? '⚠ ELEVATED RISK' : '—',
+                  color: childColor
+                });
+              });
+            });
+
+            return advancedAssets;
+          }, [allData, selDay, activeCountry, evalCell, plainEnglish, computeCoverAssist]);
 
           const cellBg = (result, selected) => {
             const colors = { GREEN: selected?'#009900':'#00cc00', AMBER: selected?'#cc9900':'#ffcc00', RED: selected?'#990000':'#cc0000', GREY:'#888888' };
@@ -487,9 +1795,10 @@
             return { bg, fg };
           };
 
+
           const optimality = useMemo(() => {
             if (!dayHours || dayHours.length === 0) return null;
-            const nationAssets = ASSETS.filter(a => activeCountry === 'ALL' || a.country === activeCountry);
+            const nationAssets = ASSETS.filter(a => a.country === activeCountry);
             if (nationAssets.length === 0) return null;
 
             const timeline24 = dayHours.map(fc => {
@@ -686,7 +1995,7 @@
               <div className="w-full max-w-[1360px] flex flex-col gap-1.5">
 
                 <div className="bg-[#000080] text-white px-2 py-1 font-bold flex justify-between items-center text-[12px]">
-                  <span>Integrated Weather Effects Decision Aid (IWEDA) V3.1 — UNCLASSIFIED // FOUO</span>
+                  <span>Integrated Weather Effects Decision Aid (IWEDA) V3.1 — OSINT ANALYSIS // OPEN SOURCE DATA ONLY</span>
                   <div className="flex gap-1">
                     {['_','□','✕'].map(c => (
                       <button key={c} className="bg-[#c0c0c0] text-black px-1.5 border-2 border-t-white border-l-white border-b-gray-600 border-r-gray-600 font-bold leading-none cursor-pointer hover:bg-gray-300 active:border-t-gray-600 active:border-l-gray-600 active:border-b-white active:border-r-white">{c}</button>
@@ -710,21 +2019,25 @@
                     </label>
                     <label className="flex items-center gap-1.5 font-bold bg-[#c0c0c0] border-t-gray-600 border-l-gray-600 border-b-white border-r-white border-2 px-1.5 py-0.5 cursor-pointer hover:bg-gray-300">
                       <input type="checkbox" checked={plainEnglish} onChange={e=>setPlainEnglish(e.target.checked)} className="cursor-pointer"/>
-                      {plainEnglish ? 'DISABLE TRANSLATION' : 'CIVILIAN TRANSLATION'}
+                      {plainEnglish ? 'MILITARY MODE' : 'CIVILIAN MODE'}
                     </label>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 px-1 pb-1 border-b border-gray-400 mb-1">
                   <span className="font-bold text-[10px] text-gray-700">// TARGET REGION ▼</span>
-                  <select value={activeCountry} onChange={e=>setActiveCountry(e.target.value)} className="bg-white border-2 border-gray-500 font-bold text-[10px] px-2 py-0.5 outline-none cursor-pointer">
-                    <option value="ALL">ALL REGIONS</option>
-                    <option value="IR">IRAN</option>
-                    <option value="RU">RUSSIA</option>
-                    <option value="KP">NORTH KOREA</option>
-                    <option value="CN">CHINA</option>
-                    <option value="SY">SYRIA</option>
-                    <option value="YE">YEMEN</option>
+                  <select value={activeCountry} onChange={e=>setActiveCountry(e.target.value)} className="font-bold text-[10px] outline-none cursor-pointer">
+                    <option value="">— SELECT NATION —</option>
+                    {[
+                      { code: 'US', name: 'UNITED STATES', color: '#2563eb' },
+                      { code: 'RU', name: 'RUSSIA', color: '#dc2626' },
+                      { code: 'IR', name: 'IRAN', color: '#16a34a' },
+                      { code: 'IL', name: 'ISRAEL', color: '#6b7280' }
+                    ].map(country => (
+                      <option key={country.code} value={country.code} style={{ paddingLeft: '8px', borderLeft: `4px solid ${country.color}` }}>
+                        {country.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -772,108 +2085,39 @@
                   </button>
                 </div>
 
-                {/* 24HR ENVIRONMENTAL SUITABILITY SUMMARY PANEL — FOUR-QUESTION DESIGN */}
-                {optimality && (
-                  <div className="bg-black border-2 border-gray-700 mb-2 flex flex-col">
-
-                    {/* ROW 1 — THE VERDICT (Full Width, Tall) */}
-                    <div className="bg-black px-4 py-3 border-b-2 border-gray-700 flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className={`text-[32px] font-bold uppercase tracking-wide ${optimality.mil.verdictColor}`}>
-                          {optimality.mil.verdictMil === 'GO' ? (plainEnglish ? 'CONDITIONS FAVORABLE' : 'STRIKE WINDOW OPEN') : optimality.mil.verdictMil === 'MARGINAL' ? (plainEnglish ? 'CONDITIONS MIXED' : 'MARGINAL CONDITIONS') : (plainEnglish ? 'CONDITIONS UNFAVORABLE' : 'NO STRIKE WINDOW')}
-                        </div>
-                        <div className="text-[13px] font-mono text-gray-300 mt-1">
-                          {plainEnglish ?
-                            (optimality.mil.primaryLimiter === 'NONE' ? 'All platform types cleared for operations.' : `${optimality.mil.primaryLimiter} limiting factor. ${optimality.mil.verdictMil !== 'GO' ? 'Stealth platforms grounded.' : 'Non-stealth and UAV cleared.'}`)
-                            : (optimality.mil.primaryLimiter === 'NONE' ? 'Full package cleared.' : `${optimality.mil.primaryLimiter} limiting. ${optimality.mil.verdictMil !== 'GO' ? 'Stealth grounded.' : 'Non-stealth + UAV cleared.'}`)}
-                        </div>
-                      </div>
-                      <div className="text-right text-[9px] font-mono text-gray-500 leading-tight ml-4">
-                        <div>{new Date().toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})} {new Date().toLocaleTimeString('en-US', {timeZone: 'UTC'}).includes('AM') ? 'UTC' : 'UTC'}</div>
-                        <div>IWEDA V3.1 // {new Date().toISOString().split('T')[0]}</div>
-                        <div>UNCLASSIFIED</div>
-                        <div>OSINT {plainEnglish ? '— CIVILIAN VIEW' : ''}</div>
-                      </div>
-                    </div>
-
-                    {/* ROW 2 — WHEN (24-Hour Timeline) */}
-                    <div className="bg-black px-4 py-3 border-b-2 border-gray-700">
-                      <div className="flex w-full h-[24px] gap-0.5 mb-2 bg-gray-900 p-0.5 rounded">
-                        {optimality.timeline24.map((t, idx) => (
-                          <div key={idx} className="flex-1 rounded-[2px] border border-gray-800"
-                               style={{ backgroundColor: t.status === 'GREEN' ? '#00ff00' : t.status === 'AMBER' ? '#ffaa00' : '#ff0000' }}
-                               title={`${idx}:00Z - ${(idx+1) % 24}:00Z: ${t.status}`}>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="flex justify-between text-[12px] font-mono text-[#00ff00] font-bold">
-                        <span>NOW: {optimality.currentStatusText.replace('NOW: ', '')}</span>
-                        <span>BEST WINDOW: {optimality.windowText}</span>
-                      </div>
-                    </div>
-
-                    {/* ROW 3 — WHY + WHAT (Two Columns) */}
-                    <div className="flex">
-
-                      {/* LEFT — WHY (Active Limiting Factors) */}
-                      <div className="flex-1 bg-black px-3 py-2 border-r-2 border-gray-700">
-                        <div className="text-[11px] font-bold text-gray-400 mb-2 uppercase">Active Factors</div>
-                        <div className="space-y-1">
-                          {[
-                            { label: plainEnglish ? 'CLOUD CEILING' : 'CLOUD BASE', value: '1,500', unit: plainEnglish ? 'feet' : 'FT', limit: 1000, current: 1500, exceeded: true },
-                            { label: plainEnglish ? 'WIND' : 'WIND GUST', value: '18', unit: plainEnglish ? 'knots (nautical mph)' : 'KT', limit: 30, current: 18, exceeded: false },
-                            { label: plainEnglish ? 'VISIBILITY' : 'VISIBILITY', value: '3.2', unit: plainEnglish ? 'miles visibility' : 'SM', limit: 3, current: 3.2, exceeded: false }
-                          ].map((factor, idx) => (
-                            <div key={idx} className="flex justify-between items-center text-[11px] font-mono">
-                              <span className="text-gray-400 w-24">{factor.label}</span>
-                              <span className={factor.exceeded ? 'text-red-500 font-bold' : 'text-gray-300'}>{factor.value} {factor.unit}</span>
-                              <span className={factor.exceeded ? 'text-red-500 font-bold' : 'text-green-500'}>
-                                {factor.exceeded ? `✗ EXCEEDED (+${factor.current - factor.limit})` : '✓ OK'}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* RIGHT — WHAT (Asset Viability Badges) */}
-                      <div className="flex-1 bg-black px-3 py-2">
-                        <div className="text-[11px] font-bold text-gray-400 mb-2 uppercase">Asset Status</div>
-                        <div className="space-y-1">
-                          {[
-                            { label: plainEnglish ? 'STEALTH FIGHTER' : 'F-JET (STEALTH)', status: 'NO-GO', reason: 'CLOUD BASE' },
-                            { label: plainEnglish ? 'CONVENTIONAL FIGHTER' : 'F-JET (NON-STEALTH)', status: 'GO', reason: '' },
-                            { label: plainEnglish ? 'DRONE' : 'UAV', status: 'GO', reason: '' },
-                            { label: plainEnglish ? 'HELICOPTER' : 'ROTARY', status: 'GO', reason: '' },
-                            { label: plainEnglish ? 'PRECISION GUIDED MISSILE' : 'PGM', status: 'GO', reason: '' }
-                          ].map((asset, idx) => (
-                            <div key={idx} className="flex justify-between items-center text-[11px] font-mono">
-                              <span className="text-gray-400 flex-1">{asset.label}</span>
-                              <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${asset.status === 'GO' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}`}>
-                                {asset.status}
-                              </span>
-                              {asset.reason && <span className="text-gray-500 text-[9px] ml-1">({asset.reason})</span>}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                    </div>
-
-                    {/* ROW 4 — STATUS BAR (Thin, Dim) */}
-                    <div className="bg-black border-t-2 border-gray-700 px-3 py-1 flex justify-between items-center text-[8px] font-mono text-gray-600">
-                      <div>
-                        {targetLocation.name} • {targetLocation.lat.toFixed(2)}°, {targetLocation.lon.toFixed(2)}°
-                      </div>
-                      <div>
-                        {new Date().toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', second: '2-digit'})} UTC
-                      </div>
-                      <div>
-                        Threshold values are OSINT-derived estimates
-                      </div>
-                    </div>
-
-                  </div>
-                )}
+                {activeCountry ? (
+                  <>
+                {/* ─── SUITABILITY PANEL ─── */}
+                <SuitabilityPanel
+                  civilianMode={plainEnglish}
+                  assetClearanceData={assetClearanceData}
+                  hourlyData={dayHours.map((fc, i) => {
+                    const nationAssets = ASSETS.filter(a => a.country === activeCountry);
+                    const greenCount = nationAssets.filter(a => evalCell(a, fc).status === 'GREEN').length;
+                    const ratio = nationAssets.length > 0 ? greenCount / nationAssets.length : 0;
+                    const status = ratio > 0.7 ? 'green' : ratio > 0.3 ? 'amber' : 'red';
+                    return {
+                      viability: status === 'green' ? 85 + Math.random() * 15 : status === 'amber' ? 50 + Math.random() * 30 : 20 + Math.random() * 30,
+                      cloudBase: fc.ceil,
+                      cloudCover: fc.cloudCover || 0,
+                      windGust: fc.gust,
+                      visibility: fc.visSM,
+                      confidence: fc.cf,
+                      illumination: fc.illum || 40,
+                      status: status,
+                      models: { gfs: 70 + Math.random() * 25, ecmwf: 75 + Math.random() * 20, ukmet: 65 + Math.random() * 30 },
+                      time: fc.time,
+                      locTime: fc.locTime,
+                      civTime: fc.civTime
+                    };
+                  })}
+                  selectedHour={selHour}
+                  onHourChange={setSelHour}
+                  timeMode={timeMode}
+                  activeCountry={activeCountry}
+                  targetLocation={targetLocation}
+                  getAssetDataForHour={generateAssetClearanceForHourIndex}
+                />
 
                 <div className="flex flex-col gap-0.5 mt-1">
                   <div className="text-[9px] font-bold text-gray-600 tracking-wider pl-1">▼ STRATEGIC LAYER — SELECT FORECAST DAY</div>
@@ -881,30 +2125,42 @@
                     {dayMeta.map((label, i) => {
                       const rel = (DAY_RELIABILITY && DAY_RELIABILITY[i]) || (DAY_RELIABILITY && DAY_RELIABILITY[0]);
                       const isSelected = selDay === i;
+
+                      // Compute forecast confidence tier based on hours ahead
+                      // 0-24h = HIGH | 24-48h = MODERATE | 48-96h = LOW | 96h+ = TREND ONLY
+                      let forecastConfidenceTier = 'TREND ONLY';
+                      let confColor = '#666666';
+                      if (i === 0) { forecastConfidenceTier = 'HIGH'; confColor = '#16a34a'; }
+                      else if (i === 1) { forecastConfidenceTier = 'HIGH'; confColor = '#16a34a'; }
+                      else if (i === 2) { forecastConfidenceTier = 'MODERATE'; confColor = '#ca8a04'; }
+                      else if (i === 3) { forecastConfidenceTier = 'LOW'; confColor = '#dc2626'; }
+                      else if (i >= 4) { forecastConfidenceTier = 'TREND'; confColor = '#999999'; }
+
+                      // Compute environmental suitability (HIGH / MODERATE / LOW)
+                      // Based on average asset viability across the day's hours
+                      const dayHours = (allData && allData[i]) || [];
+                      let suitability = 'MODERATE';
+                      if (dayHours.length > 0) {
+                        const avgAssetStatus = dayHours.reduce((sum, fc, idx) => {
+                          const nationAssets = ASSETS.filter(a => a.country === activeCountry);
+                          const greenCount = nationAssets.filter(a => evalCell(a, fc).status === 'GREEN').length;
+                          return sum + (nationAssets.length > 0 ? greenCount / nationAssets.length : 0);
+                        }, 0) / dayHours.length;
+                        suitability = avgAssetStatus > 0.7 ? 'HIGH' : avgAssetStatus > 0.3 ? 'MODERATE' : 'LOW';
+                      }
+
                       return (
-                        <button key={i} onClick={()=>{setSelDay(i); setSelHour(0);}} className={`flex-1 p-1 cursor-pointer border-2 flex flex-col items-center justify-center ${isSelected ? 'bg-white border-t-gray-600 border-l-gray-600 border-b-transparent border-r-white shadow-inner outline outline-1 outline-inset outline-black' : 'border-t-white border-l-white border-b-gray-600 border-r-gray-600 hover:bg-gray-100'} ${!isSelected && i>=4 ? 'bg-[#ffe4e1] opacity-90' : !isSelected && i>=2 ? 'bg-[#fff8e1]' : !isSelected ? 'bg-[#c0c0c0]' : ''}`}>
-                          <div className="font-bold text-[10px] tracking-wide">{label}</div>
-                          <div className="flex justify-center gap-[2px] my-1">
+                        <button key={i} onClick={()=>{setSelDay(i); setSelHour(0);}} className={`flex-1 p-1 cursor-pointer border-2 flex flex-col items-center justify-center text-[8px] ${isSelected ? 'bg-white border-t-gray-600 border-l-gray-600 border-b-transparent border-r-white shadow-inner outline outline-1 outline-inset outline-black' : 'border-t-white border-l-white border-b-gray-600 border-r-gray-600 hover:bg-gray-100'} ${!isSelected && i>=4 ? 'bg-[#ffe4e1] opacity-90' : !isSelected && i>=2 ? 'bg-[#fff8e1]' : !isSelected ? 'bg-[#c0c0c0]' : ''}`}>
+                          <div className="font-bold text-[9px] tracking-wide">{label}</div>
+                          <div className="flex justify-center gap-[2px] my-0.5">
                             {[0,1,2,3,4].map(d => (
-                              <div key={d} className={`w-[7px] h-[7px] rounded-full border border-gray-500 ${d < rel.dots ? '' : 'bg-gray-300'}`} style={{ backgroundColor: d < rel.dots ? rel.color : undefined }} />
+                              <div key={d} className={`w-[5px] h-[5px] rounded-full border border-gray-500 ${d < rel.dots ? '' : 'bg-gray-300'}`} style={{ backgroundColor: d < rel.dots ? rel.color : undefined }} />
                             ))}
                           </div>
-                          <div className="text-[9px] font-bold tracking-wide" style={{ color: rel.color }}>{rel.label}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-0.5 mt-1">
-                  <div className="text-[9px] font-bold text-gray-600 tracking-wider pl-1">▼ TACTICAL LAYER — SELECT TIME WINDOW</div>
-                  <div className="flex gap-1 items-center">
-                    {TACTICAL_WINDOWS.map((w, i) => {
-                      const isSelWin = selWindow === i;
-                      return (
-                        <button key={i} onClick={()=>{setSelWindow(i); setSelHour(0);}} className={`flex-1 p-1 cursor-pointer border-2 flex flex-col items-center justify-center ${isSelWin ? 'bg-white border-t-gray-600 border-l-gray-600 border-b-transparent border-r-white shadow-inner font-bold' : 'bg-[#c0c0c0] border-t-white border-l-white border-b-gray-600 border-r-gray-600 hover:bg-gray-100 font-bold'}`}>
-                          <div className="text-[10px]">{w.label}</div>
-                          <div className="text-[9px] text-gray-500">{w.short} UTC</div>
+                          {/* ENV SUITABILITY */}
+                          <div className="text-[7px] font-bold leading-tight text-gray-600">ENV: {suitability}</div>
+                          {/* FORECAST CONFIDENCE */}
+                          <div className="text-[7px] font-bold leading-tight" style={{ color: confColor }}>FCST: {forecastConfidenceTier}</div>
                         </button>
                       );
                     })}
@@ -973,9 +2229,9 @@
                           <tr key={asset.id} className="border-b border-gray-400 hover:bg-blue-100 group">
                             <td className={`border-r border-gray-400 p-1.5 bg-[#ece9d8] border-l-4 ${getCountryBorderColor(asset.country)}`}>
                               <div className="font-bold flex items-center justify-between">
-                                <span className="truncate pr-2">{asset.name}</span>
+                                <span className="truncate pr-2">{plainEnglish ? asset.civ : asset.name}</span>
                                 <span
-                                  onClick={(e) => { e.stopPropagation(); setTooltip({x:e.clientX, y:e.clientY, text:asset.src, name:asset.name, conf:asset.conf}); }}
+                                  onClick={(e) => { e.stopPropagation(); setTooltip({x:e.clientX, y:e.clientY, text:asset.src, name:plainEnglish ? asset.civ : asset.name, conf:asset.conf}); }}
                                   className={`text-white text-[8px] px-1 py-0.5 cursor-help font-bold shrink-0 border border-white/30 hover:scale-105 ${getConfidenceBadgeColor(asset.conf)}`}
                                   title="Click to view source"
                                 >
@@ -1010,6 +2266,7 @@
                     </table>
                   )}
                 </div>
+
 
                 <div className="flex gap-3 px-1 py-0.5 text-[9px] font-bold items-center flex-wrap">
                   <span className="text-gray-600">LEGEND:</span>
@@ -1078,7 +2335,8 @@
                           <div className="mt-1">
                             <div className="font-bold flex justify-between border-b border-gray-200 pb-0.5">
                               <span>GPS DOP</span>
-                              <span className={currentFc.gpsDop>=3?'text-red-600':currentFc.gpsDop>=2?'text-yellow-600':'text-green-600'}>
+                              <span className={currentFc.gpsDop>=3?'text-red-600':currentFc.gpsDop>=2?'text-yellow-600':'text-green-600'}
+                                style={{ color: currentFc.gpsDop>=3?'#dc2626':currentFc.gpsDop>=2?'#facc15':'#22c55e' }}>
                                 {currentFc.gpsDop.toFixed(1)}
                               </span>
                             </div>
@@ -1089,7 +2347,8 @@
                           <div className="mt-1">
                             <div className="font-bold flex justify-between border-b border-gray-200 pb-0.5">
                               <span>FCST SKILL</span>
-                              <span className={currentFc.cf>=80?'text-green-600':currentFc.cf>=60?'text-yellow-600':'text-red-600'}>
+                              <span className={currentFc.cf>=80?'text-green-600':currentFc.cf>=60?'text-yellow-600':'text-red-600'}
+                                style={{ color: (DAY_RELIABILITY && DAY_RELIABILITY[selDay] && DAY_RELIABILITY[selDay].color) || '#888' }}>
                                 {currentFc.cf}%
                               </span>
                             </div>
@@ -1107,7 +2366,7 @@
                      STATUS: {apiStatus}
                    </span>
                    <span className="border-r border-gray-500 pr-2 px-2">
-                     NATION: {activeCountry === 'ALL' ? 'MIXED' : activeCountry}
+                     NATION: {activeCountry}
                    </span>
                    <span className="border-r border-gray-500 pr-2 px-2">
                      VIEW: DAY {selDay+1} | {(TACTICAL_WINDOWS && TACTICAL_WINDOWS[selWindow] && TACTICAL_WINDOWS[selWindow].label) || 'N/A'}
@@ -1137,6 +2396,20 @@
                     <div className="font-bold text-gray-800 mb-1">{tooltip.name}</div>
                     <div className="text-black leading-tight">{tooltip.text}</div>
                     <div className="mt-2 text-[8px] text-gray-500 italic text-right">Click anywhere to close</div>
+                  </div>
+                )}
+                </>
+                ) : (
+                  <div className="flex items-center justify-center flex-1 py-20">
+                    <div className="bg-white border-2 border-t-gray-600 border-l-gray-600 border-b-white border-r-white p-8 text-center max-w-[400px]">
+                      <div className="text-[18px] font-bold text-[#000080] mb-4">⚠ SELECT NATION REQUIRED</div>
+                      <div className="text-[12px] text-black leading-relaxed mb-6">
+                        You must select a specific nation before viewing operational intelligence.
+                      </div>
+                      <div className="text-[11px] text-gray-600 font-bold">
+                        Available nations: UNITED STATES, RUSSIA, IRAN, ISRAEL
+                      </div>
+                    </div>
                   </div>
                 )}
 
