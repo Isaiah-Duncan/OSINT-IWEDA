@@ -1546,7 +1546,7 @@
 
             // Translate category names for civilian mode
             const translateCategoryName = (catName) => {
-              if (!civilianMode) return catName;
+              if (!plainEnglish) return catName;
               const translations = {
                 'F-JET': 'FIGHTERS & BOMBERS',
                 'UAV': 'DRONES',
@@ -1676,7 +1676,7 @@
 
             // Translate category names for civilian mode
             const translateCategoryName = (catName) => {
-              if (!civilianMode) return catName;
+              if (!plainEnglish) return catName;
               const translations = {
                 'F-JET': 'FIGHTERS & BOMBERS',
                 'UAV': 'DRONES',
@@ -2229,9 +2229,9 @@
                           <tr key={asset.id} className="border-b border-gray-400 hover:bg-blue-100 group">
                             <td className={`border-r border-gray-400 p-1.5 bg-[#ece9d8] border-l-4 ${getCountryBorderColor(asset.country)}`}>
                               <div className="font-bold flex items-center justify-between">
-                                <span className="truncate pr-2">{plainEnglish ? asset.civ : asset.name}</span>
+                                <span className="truncate pr-2">{civilianMode ? asset.civ : asset.name}</span>
                                 <span
-                                  onClick={(e) => { e.stopPropagation(); setTooltip({x:e.clientX, y:e.clientY, text:asset.src, name:plainEnglish ? asset.civ : asset.name, conf:asset.conf}); }}
+                                  onClick={(e) => { e.stopPropagation(); setTooltip({x:e.clientX, y:e.clientY, text:asset.src, name:civilianMode ? asset.civ : asset.name, conf:asset.conf}); }}
                                   className={`text-white text-[8px] px-1 py-0.5 cursor-help font-bold shrink-0 border border-white/30 hover:scale-105 ${getConfidenceBadgeColor(asset.conf)}`}
                                   title="Click to view source"
                                 >
@@ -2239,7 +2239,7 @@
                                 </span>
                               </div>
                               <div className="text-[9px] text-gray-600 flex justify-between items-center mt-0.5">
-                                <span className="truncate pr-1">{plainEnglish ? asset.civ : asset.type}</span>
+                                <span className="truncate pr-1">{civilianMode ? asset.civ : asset.type}</span>
                                 <div className="flex gap-1 items-center shrink-0">
                                    {asset.asym === 'FAVORS_ATTACKER' && <span className="text-purple-600 font-bold" title="Weather asymmetric: Favors Attacker">★</span>}
                                    <span className="font-bold text-black">{asset.country}</span>
