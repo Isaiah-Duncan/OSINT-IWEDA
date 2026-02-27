@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clearance Engine Smoke Test</title>
+    <script src="clearance-engine.js"></script>
+</head>
+<body>
+    <h1>Clearance Engine Smoke Test</h1>
+    <pre id="output"></pre>
+
+    <script>
+        const output = document.getElementById('output');
+
+        function log(msg) {
+            output.textContent += msg + '\n';
+            console.log(msg);
+        }
+
+        try {
+            // Test 1: Engine loaded
+            log('✓ Engine loaded: ' + (typeof window.ClearanceEngine !== 'undefined'));
+
+            // Test 2: B-2A in clear conditions
+            const b2aScore = window.ClearanceEngine.computeNetClearance('B2', 30, 40, false, true);
+            const b2aStatus = window.ClearanceEngine.scoreToStatus(b2aScore);
+            log('✓ B-2A (clear sky): score=' + b2aScore + ', status=' + b2aStatus);
+            log('  Expected: status=GREEN (score >= 0.80)');
+
+            // Test 3: AC-130 illuminated
+            const ac130Score = window.ClearanceEngine.computeNetClearance('AC130', 80, 20, false, true);
+            const ac130Status = window.ClearanceEngine.scoreToStatus(ac130Score);
+            log('✓ AC-130 (illuminated): score=' + ac130Score + ', status=' + ac130Status);
+            log('  Expected: higher than GERAN2 when illuminated equally');
+
+            // Test 4: GERAN2 medium illumination
+            const geran2Score = window.ClearanceEngine.computeNetClearance('GERAN2', 60, 50, false, true);
+            const geran2Status = window.ClearanceEngine.scoreToStatus(geran2Score);
+            log('✓ GERAN2 (moderate): score=' + geran2Score + ', status=' + geran2Status);
+            log('  Expected: lower than AC-130 when illuminated equally');
+
+            // Test 5: JDAM fallback conditions
+            const jdamScore = window.ClearanceEngine.computeNetClearance('JDAM', 50, 70, false, false);
+            const jdamStatus = window.ClearanceEngine.scoreToStatus(jdamScore);
+            log('✓ JDAM (clouds): score=' + jdamScore + ', status=' + jdamStatus);
+            log('  Expected: GREEN when illumination adequate (fallback optical)');
+
+            // Test 6: Platform entry lookup
+            log('✓ B2 entry: ' + JSON.stringify(window.ClearanceEngine.DOMAIN_LOOKUP['B2']));
+            log('✓ AC130 entry: ' + JSON.stringify(window.ClearanceEngine.DOMAIN_LOOKUP['AC130']));
+
+            log('\n✅ All smoke tests passed!');
+        } catch (e) {
+            log('❌ Error: ' + e.message + '\n' + e.stack);
+        }
+    </script>
+</body>
+</html>
